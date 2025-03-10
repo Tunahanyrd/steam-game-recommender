@@ -16,9 +16,9 @@ def load_hdf5():
 
         with pd.HDFStore(hdf5_path, "r") as store:
             df = store["df"]
-            similarity_matrix = store["similarity_matrix"].values  # DataFrame'den NumPy array'e çevir
+            similarity_matrix = store["similarity_matrix"].values  r
 
-            # Liste veya karmaşık veri tipleri içeren sütunları NumPy array formatına çevir
+       
             vector_columns = [
                 "developers_vector", "publishers_vector", "category_vector", 
                 "genre_vector", "tags_matrix", "tags_tfidf_matrix", 
@@ -26,12 +26,12 @@ def load_hdf5():
             ]
             for col in vector_columns:
                 if col in df.columns:
-                    df[col] = df[col].astype(object)  # NumPy array olarak sakla
+                    df[col] = df[col].astype(object)  
 
         return df, similarity_matrix
 
     except Exception as e:
-        st.error(f"⚠️ Veri yüklenirken hata oluştu: {e}")
+        st.error(f"⚠️ An error occurred while loading data: {e}")
         return None, None
 
 
@@ -52,7 +52,7 @@ def recommend_games(game_id, top_n=10, min_similarity=0.5):
         
     """
     if game_id not in df["app_id"].values:
-        st.error("⚠️ Bu ID'ye sahip oyun bulunamadı!")
+        st.error("⚠️ No game found with this ID!")
         return None
 
     app_id_to_index = {app_id: i for i, app_id in enumerate(df["app_id"].values)}
@@ -93,7 +93,7 @@ if st.button("Get Recommendation"):
         if recommendations:
             st.markdown("### 📌 Recommended games:")
             for app_id, name, similarity in recommendations:
-                st.markdown(f"🔹 **{name}** (Benzerlik: {similarity:.3f})")
+                st.markdown(f"🔹 **{name}** (Similarity: {similarity:.3f})")
         else:
             st.error("ID is not found.")
     else:
