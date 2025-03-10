@@ -33,7 +33,7 @@ def load_hdf5():
             return None, None
 
         with h5py.File(h5_path, "r") as file:
-            df_dict = {col: file[col][:] for col in file.keys() if col != "similarity_matrix"}
+            df_dict = {col: file[col][()] for col in file.keys() if col != "similarity_matrix"}
             df = pd.DataFrame(df_dict)
 
             for col in df.select_dtypes(include=[np.object_, bytes]):
