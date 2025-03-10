@@ -7,9 +7,11 @@ from pathlib import Path
 # Download the HDF5 file from the Hugging Face URL if not present locally.
 @st.cache_data
 def download_h5():
+    # Set the local file path (will be created in the working directory)
     h5_path = Path("game_recommendation.h5")
     if h5_path.exists():
         return h5_path
+    # Hugging Face URL for the HDF5 file.
     hf_url = "https://huggingface.co/datasets/Tunahanyrd/steam-game-recommendation/resolve/main/models/game_recommendation.h5"
     try:
         with requests.get(hf_url, stream=True) as r:
@@ -31,7 +33,7 @@ def load_hdf5():
             return None, None
         with pd.HDFStore(h5_path, "r") as store:
             df = store["df"]
-            similarity_matrix = store["similarity_matrix"].values
+            similarity_matrix = store["similarity_matrix"].values  # Remove any accidental extra characters.
             vector_columns = [
                 "developers_vector", "publishers_vector", "category_vector", 
                 "genre_vector", "tags_matrix", "tags_tfidf_matrix", 
@@ -46,24 +48,17 @@ def load_hdf5():
         return None, None
 
 df, similarity_matrix = load_hdf5()
+
 if df is None or similarity_matrix is None:
     st.stop()
 
 # Function to recommend similar games based on a given game ID.
 def recommend_games(game_id, top_n=10, min_similarity=0.5):
     """
-    Recommend similar games based on a provided game ID.
-
-    Args:
-        game_id (int): The Steam game ID.
-        top_n (int): The number of recommendations to return.
-        min_similarity (float): The minimum similarity threshold.
-
-    Returns:
-        List of tuples with (app_id, game name, similarity score) for recommended games.
+    Recommend similar games based on the provided Steam game ID.
     """
     if game_id not in df["app_id"].values:
-        st.error("⚠️ Recommendations for this game cannot be calculated. Please try another game.")
+        st.error("⚠️ No game found with this ID!")
         return None
 
     # Map app IDs to DataFrame indices.
@@ -90,19 +85,20 @@ def recommend_games(game_id, top_n=10, min_similarity=0.5):
 
     return recommendations
 
-# Streamlit UI
 st.title("🎮 Game Recommendation")
 st.markdown("**Enter your game Steam ID and see similar games!**")
-game_id = st.text_input("Enter your game Steam ID:", "")
+
+game_id = st.text_input("Enter your game Steam ID", "")
+
 if st.button("Get Recommendation"):
     if game_id.isdigit():
         game_id = int(game_id)
         recommendations = recommend_games(game_id)
         if recommendations:
-            st.markdown("### 📌 Recommended Games:")
+            st.markdown("### 📌 Recommended games:")
             for app_id, name, similarity in recommendations:
                 st.markdown(f"🔹 **{name}** (Similarity: {similarity:.3f})")
         else:
-            st.error("Game ID not found.")
+            st.error("ID is not found.")
     else:
         st.warning("Please enter a valid ID.")
