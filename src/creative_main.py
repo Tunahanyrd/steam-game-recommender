@@ -16,7 +16,8 @@ The data is read from the "games.json" file, cleaned, and various features are v
     - Developers, Publishers, Categories, and Genres: Vectorized with Word2Vec, and average vectors are computed.
 Finally, all features are combined with specific weights to obtain a single unified feature vector, and recommendations are generated using cosine similarity.
 """
-
+import h5py
+import numpy as np
 import pandas as pd
 import numpy as np
 import ast
@@ -26,7 +27,6 @@ from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.feature_extraction import DictVectorizer
 from sklearn.preprocessing import MinMaxScaler
-
 # =============================================================================
 # 1. DATA LOAD & CLEANING
 # =============================================================================
@@ -55,7 +55,7 @@ df = df.rename(columns={"index": "app_id"})
 # =============================================================================
 def transform_estimated_owners(x):
     """
-    Converts ranges in column 'estimated_owners' to ranges (e.g. "20000 - 50000"). Values ​​"0 - 0" make NaN.
+    Converts ranges in column 'estimated_owners' to ranges (e.g. "20000 - 50000"). Values "0 - 0" make NaN.
     """
     if isinstance(x, str):
         x = x.strip()
@@ -107,10 +107,8 @@ drop_cols = ["total_reviews", "positive", "negative", "positive_rate_wilson", "p
 df = df.drop(columns=drop_cols)
 
 # =============================================================================
-# 5. METACRITIC SCORE PROCESSING ()
+# 5. METACRITIC SCORE PROCESSING
 # =============================================================================
-# Zero values in the metacritic_score column are replaced with NaN to indicate missing values.
-# Missing scores are estimated based on user ratings using the formula
 df["metacritic_score"] = df["metacritic_score"].replace(0, np.nan)
 df["metacritic_score"] = df["metacritic_score"].fillna(df["positive_rate"] * 9 + 5)
 df["metacritic_score"] = df["metacritic_score"] / 120
@@ -118,9 +116,8 @@ df = df[df["metacritic_score"] > 0.25]
 df = df.drop(columns="positive_rate")
 
 # =============================================================================
-# 6. CATEGORİES AND GENRES PROCESSING
+# 6. CATEGORIES AND GENRES PROCESSING
 # =============================================================================
-# Sütunların string olarak gelmesi durumunda ast.literal_eval ile listeye çeviriyoruz.
 df["categories"] = df["categories"].apply(lambda x: ast.literal_eval(x) if isinstance(x, str) else x)
 df["genres"] = df["genres"].apply(lambda x: ast.literal_eval(x) if isinstance(x, str) else x)
 
@@ -172,7 +169,7 @@ short_desc_matrix = tfidf.fit_transform(df['short_description'].fillna("")).toar
 # (B) TAGS: firstly formatting
 def convert_tags(x):
     """
-    tags datas formatting dictionary
+    Tags data formatting dictionary.
     """
     if isinstance(x, dict):
         return x
@@ -190,7 +187,7 @@ def convert_tags(x):
         except:
             return {}
 df["tags"] = df["tags"].apply(convert_tags)
-# Tagss are vektorization with DictVectorizer 
+# Vektörizasyon for tags using DictVectorizer 
 vec = DictVectorizer(sparse=False)
 tags_matrix = vec.fit_transform(df["tags"])
 
@@ -203,24 +200,23 @@ tfidf_tags = TfidfVectorizer(max_features=100)
 tags_tfidf_matrix = tfidf_tags.fit_transform(df["tags_text"]).toarray()
 
 # =============================================================================
-# 10. FEATURE MERGING
+# 10. FEATURE MERGING (BASIC FEATURES)
 # =============================================================================
 # release_year columns scaling
 scaler_year = MinMaxScaler()
 df["release_year_norm"] = scaler_year.fit_transform(df[['release_year']].fillna(0))
 
-# Weights
+# Weights for basic features (Word2Vec + scalar scores)
 weights = {
-    "metacritic": 0.5,  
-    "release_year": 0.8,  
-    "short_desc": 20.0,  
-    "tags": 30.0,  
-    "developers": 1.0,  
-    "publishers": 1.0,  
-    "category": 5.0,  
-    "genre": 15.0,  
+    "metacritic": 1.0,  
+    "release_year": 15.0,  
+    "short_desc": 35.0,  
+    "tags": 10.0,  
+    "developers": 1.3,  
+    "publishers": 2.5,  
+    "category": 8.0,  
+    "genre": 10.0,  
 }
-
 
 def combine_features(row):
     """
@@ -228,7 +224,6 @@ def combine_features(row):
     with Word2Vec-based vectors (developers, publishers, category, genre) 
     by applying weighted aggregation.
     """
-
     return np.concatenate([
         np.array([row["metacritic_score"]]) * weights["metacritic"],
         np.array([row["release_year_norm"]]) * weights["release_year"],
@@ -239,28 +234,32 @@ def combine_features(row):
     ])
 
 basic_feature_vectors = df.apply(lambda row: combine_features(row), axis=1).tolist()
-
-final_feature_vectors = []
-for i in range(len(df)):
-    vec_basic = basic_feature_vectors[i]
-    vec_short = short_desc_matrix[i] * weights["short_desc"]
-    vec_tags = tags_matrix[i] * weights["tags"]
-    full_vector = np.concatenate([vec_basic, vec_short, vec_tags])
-    final_feature_vectors.append(full_vector)
-df["feature_vector"] = final_feature_vectors
+basic_feature_matrix = np.vstack(basic_feature_vectors)
 
 # =============================================================================
-# 11. CALCULATING SIMILARITY MATRISİX
+# 11. CALCULATING SIMILARITY MATRİX (SEPARATE FUSION)
 # =============================================================================
-feature_matrix = np.vstack(df["feature_vector"].values)
-similarity_matrix = cosine_similarity(feature_matrix)
+# Compute cosine similarities separately for basic features, short description and tags.
+sim_basic = cosine_similarity(basic_feature_matrix)
+sim_short = cosine_similarity(short_desc_matrix)
+sim_tags = cosine_similarity(tags_matrix)
 
+# Ağırlıkları ayrı belirleyelim: 
+# Burada basic özelliklere 1.0, short_desc'a weights["short_desc"] ve taglere weights["tags"] etkisi veriyoruz.
+sim_weight_basic = 1.0
+sim_weight_short = weights["short_desc"]
+sim_weight_tags = weights["tags"]
+
+final_similarity = (sim_weight_basic * sim_basic + 
+                    sim_weight_short * sim_short + 
+                    sim_weight_tags * sim_tags)
+                    
 # =============================================================================
-# 12. RECOMMANDATION
+# 12. RECOMMENDATION
 # =============================================================================
-def recommend_games(game_index, top_n=10, min_similarity=0.5):
+def recommend_games(game_index, top_n=10, min_similarity=0.7):
     """
-    Ranks similar games to the specified index based on the cosine similarity matrix.
+    Ranks similar games to the specified index based on the combined cosine similarity matrix.
     
     Args:
         game_index (int): Sequential index in the DataFrame (0,1,2,...).
@@ -271,11 +270,11 @@ def recommend_games(game_index, top_n=10, min_similarity=0.5):
         List of tuples: [(recommended_game_index, similarity_score), ...]
     """
 
-    if game_index < 0 or game_index >= similarity_matrix.shape[0]:
+    if game_index < 0 or game_index >= final_similarity.shape[0]:
         print("\nInvalid game index.")
         return []
     
-    sim_scores = list(enumerate(similarity_matrix[game_index]))
+    sim_scores = list(enumerate(final_similarity[game_index]))
     sim_scores = sorted(sim_scores, key=lambda x: x[1], reverse=True)
     
     recommendations = []
@@ -287,7 +286,7 @@ def recommend_games(game_index, top_n=10, min_similarity=0.5):
     return recommendations
 
 # =============================================================================
-# 13. USER INTARFACE
+# 13. USER INTERFACE
 # =============================================================================
 if __name__ == '__main__':
     print("Game Recommendation System Started. Type 'exit' to exit.\n")
@@ -304,12 +303,12 @@ if __name__ == '__main__':
         if target_game.empty:
             print(f"{target} app_id is not found!")
         else:
-            print("\Target Game:")
+            print("\nTarget Game:")
             print(target_game[["app_id", "name"]])
             
             # DataFrame içindeki sıralı pozisyonu alıyoruz.
             target_pos = df.index.get_loc(target_game.index[0])
-            recommendations = recommend_games(target_pos, top_n=10, min_similarity=0.5)
+            recommendations = recommend_games(target_pos, top_n=10, min_similarity=0.7)
             if not recommendations:
                 print("\nRecommended game not found or invalid index!")
             else:
@@ -318,4 +317,3 @@ if __name__ == '__main__':
                     rec_game = df.iloc[rec_index][["app_id", "name"]]
                     print(f"{rec_game['app_id']} - {rec_game['name']} (Similarity: {score:.3f})")
         print("\n-----------------------------------\n")
-        
