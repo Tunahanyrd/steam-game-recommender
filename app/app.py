@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import h5py
 import requests
 from pathlib import Path
 
@@ -23,67 +22,29 @@ def download_h5():
         st.error(f"🚨 HDF5 file download failed: {e}")
         return None
 
-# Recursively collect all datasets in the HDF5 file.
-def get_datasets(file):
-    """
-    Recursively collects all datasets in the HDF5 file and returns a dictionary
-    mapping the dataset's full path to its value.
-    """
-    datasets = {}
-    def visitor(name, obj):
-        if isinstance(obj, h5py.Dataset):
-            datasets[name] = obj[()]
-    file.visititems(visitor)
-    return datasets
-
-# Load the HDF5 file and extract the DataFrame and similarity matrix.
+# Load the HDF5 file using pandas HDFStore and extract the DataFrame and similarity matrix.
 @st.cache_data
 def load_hdf5():
     try:
         h5_path = download_h5()
         if h5_path is None:
             return None, None
-        with h5py.File(h5_path, "r") as file:
-            datasets = get_datasets(file)
-            
-            # Try to find the similarity matrix key by checking keys that end with "similarity_matrix"
-            similarity_key = None
-            for key in datasets.keys():
-                if key.endswith("similarity_matrix"):
-                    similarity_key = key
-                    break
-            if similarity_key is None:
-                # For debugging, you might uncomment the following line to see available keys:
-                # st.write("Available dataset keys:", list(datasets.keys()))
-                st.error("⚠️ Similarity matrix not found in the HDF5 file.")
-                return None, None
-            
-            # Build the DataFrame from all datasets except the similarity matrix.
-            df_data = {k: v for k, v in datasets.items() if k != similarity_key}
-            df = pd.DataFrame(df_data)
-            
-            # Decode byte columns if necessary.
-            for col in df.select_dtypes(include=[np.object_, bytes]):
-                df[col] = df[col].apply(lambda x: x.decode("utf-8") if isinstance(x, bytes) else x)
-            
-            # Convert specific vector columns to numpy arrays if needed.
+        with pd.HDFStore(h5_path, "r") as store:
+            df = store["df"]
+            similarity_matrix = store["similarity_matrix"].values
             vector_columns = [
                 "developers_vector", "publishers_vector", "category_vector", 
                 "genre_vector", "tags_matrix", "tags_tfidf_matrix", 
                 "feature_matrix", "final_feature_vectors", "short_desc_matrix"
             ]
             for col in vector_columns:
-                if col in df.columns and isinstance(df[col].iloc[0], list):
-                    df[col] = df[col].apply(np.array)
-            
-            similarity_matrix = datasets[similarity_key]
-            
+                if col in df.columns:
+                    df[col] = df[col].astype(object)
         return df, similarity_matrix
     except Exception as e:
-        st.error(f"⚠️ Data importing error: {e}")
+        st.error(f"⚠️ An error occurred while loading data: {e}")
         return None, None
 
-# Load the data.
 df, similarity_matrix = load_hdf5()
 if df is None or similarity_matrix is None:
     st.stop()
