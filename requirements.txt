@@ -3,4 +3,4 @@ numpy
 scipy
 scikit-learn
 streamlit
-h5py
+tables
