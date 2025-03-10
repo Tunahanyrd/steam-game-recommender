@@ -1,5 +1,7 @@
+streamlit
+tables
 pandas
 numpy
 scipy
 scikit-learn
-streamlit
+
