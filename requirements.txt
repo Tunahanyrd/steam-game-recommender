@@ -1,4 +1,5 @@
 streamlit
+huggingface_hub
 tables
 pandas
 numpy
