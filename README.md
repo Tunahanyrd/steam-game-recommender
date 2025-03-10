@@ -64,7 +64,7 @@ The complete dataset and model are hosted on Hugging Face:
 ## 📌 How to Use
 1. Run the Streamlit application:
 ```bash
-streamlit run app/app.py
+streamlit run app/local_app.py
 ```
 2. Download the `.h5` file from Hugging Face and load the model:
 ```python
