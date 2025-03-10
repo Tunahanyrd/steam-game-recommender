@@ -1,20 +1,20 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-Created on Sat Mar  8 17:52:35 2025
+Created on Sat Mar 8 17:52:35 2025
 Author: Tunahan
 
 Description:
 ------------
-Bu proje, Steam verilerinden oyun öneri sistemi oluşturmak için hazırlanmıştır.
-Veriler "games.json" dosyasından okunur, temizlenir ve çeşitli özellikler vektörleştirilir:
-    - İnceleme puanı hesaplaması: Wilson Score kullanılarak.
-    - Metacritic skoru: Eksik değerler kullanıcı puanlarına dayalı doldurulur.
-    - Yayın tarihi: Yıldan, oyunun çıkış yılından itibaren geçen süre (2025 - release_year) hesaplanır.
-    - Kısa açıklamalar: TF-IDF ile vektörleştirilir.
-    - Etiketler (tags): DictVectorizer veya TF-IDF kullanılarak sayısal vektöre dönüştürülür.
-    - Developers, Publishers, Categories ve Genres: Word2Vec ile vektörleştirilip, ortalama vektörler hesaplanır.
-Son olarak, tüm özellikler belirli ağırlıklarla birleştirilip tek bir birleşik özellik vektörü elde edilir ve cosine similarity üzerinden öneriler sunulur.
+This project is designed to create a game recommendation system using Steam data.
+The data is read from the "games.json" file, cleaned, and various features are vectorized:
+    - Review score calculation: Using the Wilson Score.
+    - Metacritic score: Missing values are filled based on user ratings.
+    - Release date: The time elapsed since the game's release year is calculated as (2025 - release_year).
+    - Short descriptions: Vectorized using TF-IDF.
+    - Tags: Converted into numerical vectors using DictVectorizer or TF-IDF.
+    - Developers, Publishers, Categories, and Genres: Vectorized with Word2Vec, and average vectors are computed.
+Finally, all features are combined with specific weights to obtain a single unified feature vector, and recommendations are generated using cosine similarity.
 """
 
 import pandas as pd
@@ -30,11 +30,11 @@ from sklearn.preprocessing import MinMaxScaler
 # =============================================================================
 # 1. DATA LOAD & CLEANING
 # =============================================================================
-# "games.json" dosyasını, index olarak app_id'leri kullanarak oku
+# Read the "games.json" file using app_ids as indexes
 df = pd.read_json(r"../data/games.json", orient="index")
 df.index.rename("app_id", inplace=True)
 
-# Kullanılmayacak sütunları kaldırıyoruz
+# Remove unused columns
 drop_columns = [
     "dlc_count", "detailed_description", "about_the_game", "reviews",
     "recommendations", "header_image", "website", "required_age",
@@ -47,17 +47,15 @@ drop_columns = [
 ]
 df = df.drop(columns=drop_columns)
 
-# Eğer index steam id içeriyorsa, index'i resetleyip "app_id" sütunu olarak saklayalım
 df = df.reset_index()
 df = df.rename(columns={"index": "app_id"})
 
 # =============================================================================
-# 2. ESTIMATED OWNERS İŞLEMLERİ
+# 2. ESTIMATED OWNERS PROCESS
 # =============================================================================
 def transform_estimated_owners(x):
     """
-    'estimated_owners' sütunundaki aralık değerlerini (ör. "20000 - 50000") 
-    aralığın ortalamasına çevirir. "0 - 0" değerlerini NaN yapar.
+    Converts ranges in column 'estimated_owners' to ranges (e.g. "20000 - 50000"). Values ​​"0 - 0" make NaN.
     """
     if isinstance(x, str):
         x = x.strip()
@@ -67,7 +65,7 @@ def transform_estimated_owners(x):
             lower, upper = x.split('-')
             lower = int(lower.strip())
             upper = int(upper.strip())
-            return (lower + upper) / 2  # Aralığın ortalaması
+            return (lower + upper) / 2  # Mean of the interval
         except Exception:
             return np.nan
     return np.nan
@@ -75,16 +73,14 @@ def transform_estimated_owners(x):
 df['estimated_owners_numeric'] = df['estimated_owners'].apply(transform_estimated_owners)
 df = df.dropna(subset=['estimated_owners_numeric'])
 
-# Normalize edilmiş estimated_owners değeri (popülarite göstergesi)
+# Normalized estimated_owners values (popularity indicator)
 scaler = MinMaxScaler()
 df['estimated_owners_normalized'] = scaler.fit_transform(df[['estimated_owners_numeric']])
-# İhtiyacımız kalmadığı için ilgili sütunları kaldırıyoruz
 df = df.drop(columns=['estimated_owners', 'estimated_owners_numeric'])
 
 # =============================================================================
 # 3. RELEASE DATE -> RELEASE YEAR
 # =============================================================================
-# Release tarihi yıl olarak alınır, ardından 2025 - release_year hesaplanarak "yaş" elde edilir.
 df['release_year'] = pd.to_datetime(df['release_date'], errors='coerce').dt.year
 df = df.drop(columns=['release_date'])
 df['release_year'] = 2025 - df['release_year']
@@ -92,60 +88,54 @@ df['release_year'] = 2025 - df['release_year']
 # =============================================================================
 # 4. REVIEW SCORE VE WILSON SCORE HESAPLAMASI
 # =============================================================================
-# Toplam inceleme sayısı
+# Total review score
 df["total_reviews"] = df["positive"] + df["negative"]
 
-# Pozitif oran (p) hesaplanır
 df["p"] = df["positive"] / (df["total_reviews"] + 1e-6)
 z = norm.ppf(0.975)  # %95 güven düzeyi için z değeri
 
-# Penalty_factor ile düşük inceleme sayısına sahip oyunlara ekstra ceza uygulanır
+# Penalty_factor 
 penalty_factor = 2.5
 df["positive_rate_wilson"] = (
     (df["p"] + (z**2) / (2 * df["total_reviews"])) -
     (penalty_factor * z * np.sqrt((df["p"] * (1 - df["p"]) + (z**2) / (4 * df["total_reviews"])) / (df["total_reviews"] + 1e-6)))
 ) / (1 + (z**2) / df["total_reviews"])
-
-# İnceleme sayısının etkisini log ile ağırlıklandırarak final puan elde edilir.
+# Final rate
 df["positive_rate"] = df["positive_rate_wilson"] * np.log1p(df["total_reviews"])
 
-# Kullanmayacağımız sütunları kaldırıyoruz.
 drop_cols = ["total_reviews", "positive", "negative", "positive_rate_wilson", "p"]
 df = df.drop(columns=drop_cols)
 
 # =============================================================================
-# 5. METACRITIC SCORE İŞLEMLERİ
+# 5. METACRITIC SCORE PROCESSING ()
 # =============================================================================
-# Sıfır olan metacritic_score değerlerini NaN yapıp, positive_rate üzerinden dolduruyoruz.
+# Zero values in the metacritic_score column are replaced with NaN to indicate missing values.
+# Missing scores are estimated based on user ratings using the formula
 df["metacritic_score"] = df["metacritic_score"].replace(0, np.nan)
 df["metacritic_score"] = df["metacritic_score"].fillna(df["positive_rate"] * 9 + 5)
-# Ölçeklendirme: Burada 120’ye bölüyoruz (deneme-yanılma ile ayarlanabilir)
 df["metacritic_score"] = df["metacritic_score"] / 120
-# Belirli bir eşik değerinin altındaki oyunları filtreleyelim 
 df = df[df["metacritic_score"] > 0.25]
-# "positive_rate" sütununu artık kullanmayacağımız için kaldırıyoruz.
 df = df.drop(columns="positive_rate")
 
 # =============================================================================
-# 6. KATEGORİ VE GENRE İŞLEMLERİ
+# 6. CATEGORİES AND GENRES PROCESSING
 # =============================================================================
 # Sütunların string olarak gelmesi durumunda ast.literal_eval ile listeye çeviriyoruz.
 df["categories"] = df["categories"].apply(lambda x: ast.literal_eval(x) if isinstance(x, str) else x)
 df["genres"] = df["genres"].apply(lambda x: ast.literal_eval(x) if isinstance(x, str) else x)
 
 # =============================================================================
-# 7. DEVELOPERS VE PUBLISHERS VECTÖRLEŞTİRİLMESİ (Word2Vec)
+# 7. DEVELOPERS VE PUBLISHERS VECTORIZATıON (Word2Vec)
 # =============================================================================
 def tokenize_names(names):
     """
-    Geliştirici veya yayıncı isimlerini normalize edip tokenize eder.
-    Örnek: "Ubisoft Montreal" -> "ubisoft_montreal"
+    Developers or publishers name normalizes and tokenizes.
+    Sample: "Ubisoft Montreal" -> "ubisoft_montreal"
     """
     if isinstance(names, list):
         return [name.strip().lower().replace(" ", "_") for name in names]
     return []
 
-# Developers için
 df["developers_tokenized"] = df["developers"].apply(lambda x: tokenize_names(x))
 dev_corpus = df["developers_tokenized"].tolist()
 dev_model = Word2Vec(sentences=dev_corpus, vector_size=8, window=5, min_count=1, workers=4)
@@ -154,16 +144,11 @@ def get_average_vector(tokens, model, vector_size=8):
     return np.mean(vectors, axis=0) if vectors else np.zeros(vector_size)
 df["developers_vector"] = df["developers_tokenized"].apply(lambda tokens: get_average_vector(tokens, dev_model))
 
-# Publishers için
 df["publishers_tokenized"] = df["publishers"].apply(lambda x: tokenize_names(x))
 pub_corpus = df["publishers_tokenized"].tolist()
 pub_model = Word2Vec(sentences=pub_corpus, vector_size=8, window=5, min_count=1, workers=4)
 df["publishers_vector"] = df["publishers_tokenized"].apply(lambda tokens: get_average_vector(tokens, pub_model))
 
-# =============================================================================
-# 8. CATEGORIES VE GENRES VECTÖRLEŞTİRİLMESİ (Word2Vec)
-# =============================================================================
-# Eğer veriler liste değilse, boş liste kabul ediyoruz.
 df["categories"] = df["categories"].apply(lambda x: x if isinstance(x, list) else [])
 df["genres"] = df["genres"].apply(lambda x: x if isinstance(x, list) else [])
 
@@ -178,17 +163,16 @@ df["category_vector"] = df["categories"].apply(lambda x: get_vector_representati
 df["genre_vector"] = df["genres"].apply(lambda x: get_vector_representation(x, cat_genre_model))
 
 # =============================================================================
-# 9. TAGS VE SHORT DESCRIPTION VECTÖRLEŞTİRİLMESİ
+# 9. TAGS VE SHORT DESCRIPTION VECTORIZATION
 # =============================================================================
-# (A) SHORT DESCRIPTION: TF-IDF kullanılarak vektörleştiriliyor.
+# (A) SHORT DESCRIPTION: TF-IDF 
 tfidf = TfidfVectorizer(max_features=100)
 short_desc_matrix = tfidf.fit_transform(df['short_description'].fillna("")).toarray()
 
-# (B) TAGS: Önce tags sütununu uygun formata çevirelim.
+# (B) TAGS: firstly formatting
 def convert_tags(x):
     """
-    tags sütunundaki veriyi; dictionary, liste veya string formatında alıp 
-    dictionary formatına çevirir.
+    tags datas formatting dictionary
     """
     if isinstance(x, dict):
         return x
@@ -206,11 +190,10 @@ def convert_tags(x):
         except:
             return {}
 df["tags"] = df["tags"].apply(convert_tags)
-# DictVectorizer ile tags'leri vektörleştiriyoruz.
+# Tagss are vektorization with DictVectorizer 
 vec = DictVectorizer(sparse=False)
 tags_matrix = vec.fit_transform(df["tags"])
 
-# Ayrıca, etiketlerin anahtarlarını bir metin haline getiren alternatif TF-IDF yöntemi:
 def tags_to_text(tags):
     if isinstance(tags, dict):
         return " ".join(tags.keys())
@@ -220,13 +203,13 @@ tfidf_tags = TfidfVectorizer(max_features=100)
 tags_tfidf_matrix = tfidf_tags.fit_transform(df["tags_text"]).toarray()
 
 # =============================================================================
-# 10. ÖZELLİK BİRLEŞTİRME
+# 10. FEATURE MERGING
 # =============================================================================
-# release_year sütununu normalize edelim:
+# release_year columns scaling
 scaler_year = MinMaxScaler()
 df["release_year_norm"] = scaler_year.fit_transform(df[['release_year']].fillna(0))
 
-# Ağırlık değerleri (deneme-yanılma ile ayarlanabilir)
+# Weights
 weights = {
     "metacritic": 0.75,  
     "release_year": 1.0,  
@@ -241,10 +224,11 @@ weights = {
 
 def combine_features(row):
     """
-    Scalar (metacritic_score, release_year_norm) ve Word2Vec tabanlı
-    vektörleri (developers, publishers, category, genre) ağırlıklandırarak 
-    birleştirir.
+    Combines scalar features (metacritic_score, release_year_norm) 
+    with Word2Vec-based vectors (developers, publishers, category, genre) 
+    by applying weighted aggregation.
     """
+
     return np.concatenate([
         np.array([row["metacritic_score"]]) * weights["metacritic"],
         np.array([row["release_year_norm"]]) * weights["release_year"],
@@ -254,10 +238,8 @@ def combine_features(row):
         row["genre_vector"] * weights["genre"],
     ])
 
-# Her oyunun temel vektörünü oluşturuyoruz.
 basic_feature_vectors = df.apply(lambda row: combine_features(row), axis=1).tolist()
 
-# Kısa açıklama ve tags vektörlerini ekleyerek nihai özellik vektörünü oluşturuyoruz.
 final_feature_vectors = []
 for i in range(len(df)):
     vec_basic = basic_feature_vectors[i]
@@ -268,28 +250,27 @@ for i in range(len(df)):
 df["feature_vector"] = final_feature_vectors
 
 # =============================================================================
-# 11. BENZERLİK MATRISİNİN HESAPLANMASI
+# 11. CALCULATING SIMILARITY MATRISİX
 # =============================================================================
-# Her oyunun birleşik özellik vektörünü bir matris haline getiriyoruz.
 feature_matrix = np.vstack(df["feature_vector"].values)
 similarity_matrix = cosine_similarity(feature_matrix)
 
 # =============================================================================
-# 12. ÖNERİ FONKSİYONU
+# 12. RECOMMANDATION
 # =============================================================================
 def recommend_games(game_index, top_n=10, min_similarity=0.5):
     """
-    Belirtilen index'teki oyuna benzer oyunları cosine similarity matrisine
-    göre sıralar.
+    Ranks similar games to the specified index based on the cosine similarity matrix.
     
     Args:
-        game_index (int): DataFrame içindeki sıralı index (0,1,2,...).
-        top_n (int): Döndürülecek öneri sayısı.
-        min_similarity (float): Öneri için minimum benzerlik eşiği.
-        
+        game_index (int): Sequential index in the DataFrame (0,1,2,...).
+        top_n (int): Number of recommendations to return.
+        min_similarity (float): Minimum similarity threshold for recommendations.
+    
     Returns:
-        List of tuples: [(önerilen_oyun_index, similarity_score), ...]
+        List of tuples: [(recommended_game_index, similarity_score), ...]
     """
+
     if game_index < 0 or game_index >= similarity_matrix.shape[0]:
         print("Geçersiz oyun index'i.")
         return []
@@ -306,22 +287,22 @@ def recommend_games(game_index, top_n=10, min_similarity=0.5):
     return recommendations
 
 # =============================================================================
-# 13. ÖRNEK KULLANIM: KULLANICI İLE ETKİLEŞİM (While Loop)
+# 13. USER INTARFACE
 # =============================================================================
 if __name__ == '__main__':
-    print("Oyun Öneri Sistemi Başlatıldı. Çıkmak için 'exit' yazın.\n")
+    print("Game Recommendation System Started. Type 'exit' to exit.\n")
     while True:
-        target_input = input("Target ID giriniz: ").strip()
+        target_input = input("Enter target ID: ").strip()
         if target_input.lower() == 'exit':
             break
         try:
             target = int(target_input)
         except ValueError:
-            print("Geçersiz ID. Lütfen sayı giriniz.")
+            print("Invalid ID. Please enter a number")
             continue
         target_game = df[df["app_id"] == target]
         if target_game.empty:
-            print(f"{target} app_id'li oyun bulunamadı!")
+            print(f"{target} app_id is not found!")
         else:
             print("\nHedef Oyun:")
             print(target_game[["app_id", "name"]])
@@ -330,11 +311,11 @@ if __name__ == '__main__':
             target_pos = df.index.get_loc(target_game.index[0])
             recommendations = recommend_games(target_pos, top_n=10, min_similarity=0.5)
             if not recommendations:
-                print("\nÖnerilen oyun bulunamadı veya geçersiz index!")
+                print("\nRecommended game not found or invalid index!")
             else:
-                print("\nÖnerilen Oyunlar:")
+                print("\Recommended Games:")
                 for rec_index, score in recommendations:
                     rec_game = df.iloc[rec_index][["app_id", "name"]]
-                    print(f"{rec_game['app_id']} - {rec_game['name']} (Benzerlik: {score:.3f})")
+                    print(f"{rec_game['app_id']} - {rec_game['name']} (Similarity: {score:.3f})")
         print("\n-----------------------------------\n")
         
