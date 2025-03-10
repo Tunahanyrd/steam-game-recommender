@@ -31,7 +31,7 @@ def load_hdf5():
         return df, similarity_matrix
 
     except Exception as e:
-        st.error(f"⚠️ Veri yüklenirken hata oluştu: {e}")
+        st.error(f"⚠️ An error occurred while loading data: {e}")
         return None, None
 
 
@@ -93,7 +93,7 @@ if st.button("Get Recommendation"):
         if recommendations:
             st.markdown("### 📌 Recommended Games:")
             for app_id, name, similarity in recommendations:
-                st.markdown(f"🔹 **{name}** (Similarly: {similarity:.3f})")
+                st.markdown(f"🔹 **{name}** (Similarity: {similarity:.3f})")
         else:
             st.error("ID is not found.")
     else:
