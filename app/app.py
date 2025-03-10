@@ -1,51 +1,55 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import h5py
 import os
-import requests
 from pathlib import Path
-
-H5_URL = "https://huggingface.co/datasets/Tunahanyrd/steam-game-recommendation/resolve/main/models/game_recommendation.h5"
-H5_FILE = "game_recommendation.h5"
 
 @st.cache_data
 def download_h5():
-    h5_path = Path(__file__).resolve().parent.parent / "data" / H5_FILE
+    """
+    HDF5 dosyasını Hugging Face veya başka bir kaynaktan indirip döndürür.
+    Eğer dosya zaten mevcutsa, mevcut olanı döndürür.
+    """
+    h5_path = Path("game_recommendation.h5")
 
-    if not h5_path.exists():
-        with st.spinner("📥 Model file downloading. Please wait a minute..."):
-            response = requests.get(H5_URL, stream=True)
-            if response.status_code == 200:
-                os.makedirs(h5_path.parent, exist_ok=True)  # data klasörü yoksa oluştur
-                with open(h5_path, "wb") as file:
-                    for chunk in response.iter_content(chunk_size=8192):
-                        file.write(chunk)
-                st.success(" Model succesfully downloaded")
-            else:
-                st.error(f"🚨 HTTP Error Code: {response.status_code}")
-                return None
-    return h5_path
+    # Eğer dosya zaten varsa, yeniden indirmeye gerek yok
+    if h5_path.exists():
+        return h5_path
+
+    # Hugging Face veya başka bir kaynaktan indir
+    hf_url = "https://huggingface.co/datasets/Tunahanyrd/steam-game-recommendation/resolve/main/models/game_recommendation.h5"
+    try:
+        import requests
+        with requests.get(hf_url, stream=True) as r:
+            r.raise_for_status()
+            with open(h5_path, "wb") as f:
+                for chunk in r.iter_content(chunk_size=8192):
+                    f.write(chunk)
+        return h5_path
+    except Exception as e:
+        st.error(f"🚨 HDF5 dosyası indirilemedi: {e}")
+        return None
+
 
 @st.cache_data
 def load_hdf5():
+    """
+    HDF5 formatındaki oyun verisini ve benzerlik matrisini yükler.
+    `h5py` kullanarak bellekte daha az yer kaplaması sağlanır.
+    """
     try:
         h5_path = download_h5()
         if h5_path is None:
             return None, None
 
-        with pd.HDFStore(h5_path, "r") as store:
-            df = store["df"]
-            similarity_matrix = store["similarity_matrix"].values  
+        with h5py.File(h5_path, "r") as file:
+            # DataFrame'in her sütununu ayrı ayrı yükle
+            df_dict = {col: file[col][:] for col in file.keys() if col != "similarity_matrix"}
+            df = pd.DataFrame(df_dict)
 
-
-            vector_columns = [
-                "developers_vector", "publishers_vector", "category_vector", 
-                "genre_vector", "tags_matrix", "tags_tfidf_matrix", 
-                "feature_matrix", "final_feature_vectors", "short_desc_matrix"
-            ]
-            for col in vector_columns:
-                if col in df.columns:
-                    df[col] = df[col].astype(object)  
+            # Benzerlik matrisini NumPy array olarak yükle
+            similarity_matrix = file["similarity_matrix"][:]
 
         return df, similarity_matrix
 
@@ -53,9 +57,8 @@ def load_hdf5():
         st.error(f"⚠️ Data importing error: {e}")
         return None, None
 
+
 df, similarity_matrix = load_hdf5()
-
-
 
 def recommend_games(game_id, top_n=10, min_similarity=0.5):
     """
