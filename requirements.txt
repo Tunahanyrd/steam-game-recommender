@@ -3,4 +3,4 @@ numpy
 ast
 scipy
 sklearn
-streamlit (for web testing- non req)
+streamlit
