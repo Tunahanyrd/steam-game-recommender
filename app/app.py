@@ -1,40 +1,31 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
-import tempfile
-import requests
-from pathlib import Path
+from huggingface_hub import hf_hub_download
 
 @st.cache_data
 def load_hdf5():
     try:
-        # Huggingface URL'sinden dosyayı indiriyoruz.
-        url = "https://huggingface.co/datasets/Tunahanyrd/steam-game-recommendation/resolve/main/models/game_recommendation.h5"
-        response = requests.get(url)
-        if response.status_code != 200:
-            st.error("🚨 Veriler Huggingface'den alınamadı! Lütfen bağlantıyı kontrol edin.")
-            return None, None
+        # Hugging Face Hub'dan dosyayı indirin
+        hdf5_path = hf_hub_download(
+            repo_id="Tunahanyrd/steam-game-recommendation",  # Hugging Face'deki repo adınız
+            filename="models/game_recommendation.h5"         # İndirilecek dosyanın yolu
+        )
+        
+        # İndirilen dosya ile veriyi yükleyin
+        with pd.HDFStore(hdf5_path, "r") as store:
+            df = store["df"]
+            similarity_matrix = store["similarity_matrix"].values
 
-        # Güvenli geçici dosya işlemi için TemporaryDirectory kullanıyoruz.
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmp_path = Path(tmpdir) / "game_recommendation.h5"
-            with open(tmp_path, "wb") as tmp_file:
-                tmp_file.write(response.content)
-            # Geçici dosya üzerinden veriyi yüklüyoruz.
-            with pd.HDFStore(tmp_path, "r") as store:
-                df = store["df"]
-                similarity_matrix = store["similarity_matrix"].values
-
-                vector_columns = [
-                    "developers_vector", "publishers_vector", "category_vector", 
-                    "genre_vector", "tags_matrix", "tags_tfidf_matrix", 
-                    "feature_matrix", "final_feature_vectors", "short_desc_matrix"
-                ]
-                for col in vector_columns:
-                    if col in df.columns:
-                        df[col] = df[col].astype(object)
-            # TemporaryDirectory bloğu bittiğinde dosya otomatik silinir.
-            return df, similarity_matrix
+            vector_columns = [
+                "developers_vector", "publishers_vector", "category_vector", 
+                "genre_vector", "tags_matrix", "tags_tfidf_matrix", 
+                "feature_matrix", "final_feature_vectors", "short_desc_matrix"
+            ]
+            for col in vector_columns:
+                if col in df.columns:
+                    df[col] = df[col].astype(object)
+                    
+        return df, similarity_matrix
 
     except Exception as e:
         st.error(f"⚠️ Veri yüklenirken hata oluştu: {e}")
@@ -45,15 +36,8 @@ df, similarity_matrix = load_hdf5()
 if df is None or similarity_matrix is None:
     st.stop()
 
+# Öneri fonksiyonu
 def recommend_games(game_id, top_n=10, min_similarity=0.5):
-    """
-    Belirtilen `game_id` için benzer oyunları önerir.
-    
-    Args:
-        game_id (int): Steam App ID.
-        top_n (int): Öneri sayısı
-        min_similarity (float): Minimum benzerlik değeri
-    """
     if game_id not in df["app_id"].values:
         st.error("⚠️ Bu ID'ye sahip bir oyun bulunamadı!")
         return None
@@ -73,7 +57,6 @@ def recommend_games(game_id, top_n=10, min_similarity=0.5):
     sim_scores = sorted(sim_scores, key=lambda x: x[1], reverse=True)
 
     recommendations = []
-    # İlk skor hedef oyunu temsil ettiğinden atlanıyor.
     for idx, score in sim_scores[1:]:
         if score >= min_similarity:
             recommendations.append((df.iloc[idx]["app_id"], df.iloc[idx]["name"], score))
@@ -82,6 +65,7 @@ def recommend_games(game_id, top_n=10, min_similarity=0.5):
 
     return recommendations
 
+# Uygulama arayüzü
 st.title("🎮 Oyun Önerisi")
 st.markdown("**Steam ID'nizi girin ve benzer oyunları görün!**")
 
