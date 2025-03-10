@@ -12,7 +12,7 @@ def load_hdf5():
         hdf5_path = data_dir / "game_recommendation.h5"
 
         if not hdf5_path.exists():
-            st.error("🚨 Gerekli veri dosyası bulunamadı! Lütfen `game_recommendation.h5` dosyasını kontrol edin.")
+            st.error("🚨 Required data file not found! Please check `game recommendation.h5` file.")
             return None, None
 
         with pd.HDFStore(hdf5_path, "r") as store:
@@ -52,7 +52,7 @@ def recommend_games(game_id, top_n=10, min_similarity=0.5):
         
     """
     if game_id not in df["app_id"].values:
-        st.error("⚠️ Bu ID'ye sahip oyun bulunamadı!")
+        st.error("⚠️ Recommendations for this game cannot be calculated. Please try another game.!")
         return None
 
     app_id_to_index = {app_id: i for i, app_id in enumerate(df["app_id"].values)}
@@ -60,11 +60,11 @@ def recommend_games(game_id, top_n=10, min_similarity=0.5):
     target_idx = app_id_to_index.get(game_id, None)
     
     if target_idx is None:
-        st.error("⚠️ Geçersiz oyun ID!")
+        st.error("⚠️ Invalid game ID!")
         return None
 
     if target_idx >= similarity_matrix.shape[0]:
-        st.error("⚠️ Bu oyun için öneri hesaplanamıyor. Lütfen başka bir oyun deneyin.")
+        st.error("⚠️ Recommendations for this game cannot be calculated. Please try another game.")
         return None
 
     sim_scores = list(enumerate(similarity_matrix[target_idx]))
@@ -80,11 +80,9 @@ def recommend_games(game_id, top_n=10, min_similarity=0.5):
     return recommendations
 
 
-# Streamlit UI Başlangıç
 st.title("🎮 Game Recommendation")
 st.markdown("**Enter your game Steam ID and see similar games!**")
 
-# Kullanıcının oyun ID girmesi için input kutusu
 game_id = st.text_input("Enter your game Steam ID:", "")
 
 if st.button("Get Recommendation"):
