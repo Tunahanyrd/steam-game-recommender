@@ -23,11 +23,11 @@ def download_h5():
         st.error(f"🚨 HDF5 file download failed: {e}")
         return None
 
-# Helper function to recursively collect all datasets from the HDF5 file.
+# Recursively collect all datasets in the HDF5 file.
 def get_datasets(file):
     """
     Recursively collects all datasets in the HDF5 file and returns a dictionary
-    mapping the dataset name (full path) to its value.
+    mapping the dataset's full path to its value.
     """
     datasets = {}
     def visitor(name, obj):
@@ -46,12 +46,20 @@ def load_hdf5():
         with h5py.File(h5_path, "r") as file:
             datasets = get_datasets(file)
             
-            if "similarity_matrix" not in datasets:
+            # Try to find the similarity matrix key by checking keys that end with "similarity_matrix"
+            similarity_key = None
+            for key in datasets.keys():
+                if key.endswith("similarity_matrix"):
+                    similarity_key = key
+                    break
+            if similarity_key is None:
+                # For debugging, you might uncomment the following line to see available keys:
+                # st.write("Available dataset keys:", list(datasets.keys()))
                 st.error("⚠️ Similarity matrix not found in the HDF5 file.")
                 return None, None
             
-            # Build the DataFrame using all datasets except the similarity matrix.
-            df_data = {k: v for k, v in datasets.items() if k != "similarity_matrix"}
+            # Build the DataFrame from all datasets except the similarity matrix.
+            df_data = {k: v for k, v in datasets.items() if k != similarity_key}
             df = pd.DataFrame(df_data)
             
             # Decode byte columns if necessary.
@@ -68,7 +76,7 @@ def load_hdf5():
                 if col in df.columns and isinstance(df[col].iloc[0], list):
                     df[col] = df[col].apply(np.array)
             
-            similarity_matrix = datasets["similarity_matrix"]
+            similarity_matrix = datasets[similarity_key]
             
         return df, similarity_matrix
     except Exception as e:
@@ -97,7 +105,7 @@ def recommend_games(game_id, top_n=10, min_similarity=0.5):
         st.error("⚠️ Recommendations for this game cannot be calculated. Please try another game.")
         return None
 
-    # Create a mapping from app ID to DataFrame index.
+    # Map app IDs to DataFrame indices.
     app_id_to_index = {app_id: i for i, app_id in enumerate(df["app_id"].values)}
     target_idx = app_id_to_index.get(game_id, None)
     if target_idx is None:
