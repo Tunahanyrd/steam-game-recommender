@@ -34,21 +34,29 @@ def download_h5():
 
 @st.cache_data
 def load_hdf5():
-    """
-    HDF5 formatındaki oyun verisini ve benzerlik matrisini yükler.
-    `h5py` kullanarak bellekte daha az yer kaplaması sağlanır.
-    """
     try:
         h5_path = download_h5()
         if h5_path is None:
             return None, None
 
         with h5py.File(h5_path, "r") as file:
-            # DataFrame'in her sütununu ayrı ayrı yükle
+            # DataFrame oluştur
             df_dict = {col: file[col][:] for col in file.keys() if col != "similarity_matrix"}
             df = pd.DataFrame(df_dict)
 
-            # Benzerlik matrisini NumPy array olarak yükle
+            # NumPy array olarak saklanması gereken sütunlar
+            vector_columns = [
+                "developers_vector", "publishers_vector", "category_vector", 
+                "genre_vector", "tags_matrix", "tags_tfidf_matrix", 
+                "feature_matrix", "final_feature_vectors", "short_desc_matrix"
+            ]
+
+            # Eğer sütun list tipindeyse NumPy array'e çevir
+            for col in vector_columns:
+                if col in df.columns and isinstance(df[col].iloc[0], list):
+                    df[col] = df[col].apply(np.array)
+
+            # Benzerlik matrisini yükle
             similarity_matrix = file["similarity_matrix"][:]
 
         return df, similarity_matrix
@@ -57,8 +65,6 @@ def load_hdf5():
         st.error(f"⚠️ Data importing error: {e}")
         return None, None
 
-
-df, similarity_matrix = load_hdf5()
 
 def recommend_games(game_id, top_n=10, min_similarity=0.5):
     """
