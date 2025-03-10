@@ -1,39 +1,29 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import tempfile
 import requests
-from pathlib import Path
 
-# Download the HDF5 file from the Hugging Face URL if not present locally.
-@st.cache_data
-def download_h5():
-    # Set the local file path (will be created in the working directory)
-    h5_path = Path("game_recommendation.h5")
-    if h5_path.exists():
-        return h5_path
-    # Hugging Face URL for the HDF5 file.
-    hf_url = "https://huggingface.co/datasets/Tunahanyrd/steam-game-recommendation/resolve/main/models/game_recommendation.h5"
-    try:
-        with requests.get(hf_url, stream=True) as r:
-            r.raise_for_status()
-            with open(h5_path, "wb") as f:
-                for chunk in r.iter_content(chunk_size=8192):
-                    f.write(chunk)
-        return h5_path
-    except Exception as e:
-        st.error(f"🚨 HDF5 file download failed: {e}")
-        return None
-
-# Load the HDF5 file using pandas HDFStore and extract the DataFrame and similarity matrix.
 @st.cache_data
 def load_hdf5():
     try:
-        h5_path = download_h5()
-        if h5_path is None:
+        # Dosya Huggingface'den indiriliyor
+        url = "https://huggingface.co/datasets/Tunahanyrd/steam-game-recommendation/resolve/main/models/game_recommendation.h5"
+        response = requests.get(url)
+        if response.status_code != 200:
+            st.error("🚨 Veriler Huggingface'den alınamadı! Lütfen bağlantıyı kontrol edin.")
             return None, None
-        with pd.HDFStore(h5_path, "r") as store:
+        
+        # Geçici bir dosyaya yazılıyor
+        with tempfile.NamedTemporaryFile(suffix=".h5", delete=False) as tmp:
+            tmp.write(response.content)
+            tmp.flush()
+            tmp_path = tmp.name
+
+        with pd.HDFStore(tmp_path, "r") as store:
             df = store["df"]
-            similarity_matrix = store["similarity_matrix"].values  # Remove any accidental extra characters.
+            similarity_matrix = store["similarity_matrix"].values
+
             vector_columns = [
                 "developers_vector", "publishers_vector", "category_vector", 
                 "genre_vector", "tags_matrix", "tags_tfidf_matrix", 
@@ -42,41 +32,49 @@ def load_hdf5():
             for col in vector_columns:
                 if col in df.columns:
                     df[col] = df[col].astype(object)
+
         return df, similarity_matrix
+
     except Exception as e:
-        st.error(f"⚠️ An error occurred while loading data: {e}")
+        st.error(f"⚠️ Veri yüklenirken hata oluştu: {e}")
         return None, None
+
 
 df, similarity_matrix = load_hdf5()
 
 if df is None or similarity_matrix is None:
     st.stop()
 
-# Function to recommend similar games based on a given game ID.
+
 def recommend_games(game_id, top_n=10, min_similarity=0.5):
     """
-    Recommend similar games based on the provided Steam game ID.
+    Belirtilen `game_id` için benzer oyunları önerir.
+    
+    Args:
+        game_id (int): Steam App ID.
+        top_n (int): Öneri sayısı
+        min_similarity (float): Minimum benzerlik değeri
     """
     if game_id not in df["app_id"].values:
-        st.error("⚠️ No game found with this ID!")
+        st.error("⚠️ Bu ID'ye sahip bir oyun bulunamadı!")
         return None
 
-    # Map app IDs to DataFrame indices.
     app_id_to_index = {app_id: i for i, app_id in enumerate(df["app_id"].values)}
+
     target_idx = app_id_to_index.get(game_id, None)
+    
     if target_idx is None:
-        st.error("⚠️ Invalid game ID!")
-        return None
-    if target_idx >= similarity_matrix.shape[0]:
-        st.error("⚠️ Recommendations for this game cannot be calculated. Please try another game.")
+        st.error("⚠️ Geçersiz oyun ID'si!")
         return None
 
-    # Calculate similarity scores for the target game.
+    if target_idx >= similarity_matrix.shape[0]:
+        st.error("⚠️ Bu oyun için öneriler hesaplanamıyor. Lütfen başka bir oyun deneyin.")
+        return None
+
     sim_scores = list(enumerate(similarity_matrix[target_idx]))
     sim_scores = sorted(sim_scores, key=lambda x: x[1], reverse=True)
 
     recommendations = []
-    # Skip the first score (the game itself).
     for idx, score in sim_scores[1:]:
         if score >= min_similarity:
             recommendations.append((df.iloc[idx]["app_id"], df.iloc[idx]["name"], score))
@@ -85,20 +83,22 @@ def recommend_games(game_id, top_n=10, min_similarity=0.5):
 
     return recommendations
 
-st.title("🎮 Game Recommendation")
-st.markdown("**Enter your game Steam ID and see similar games!**")
 
-game_id = st.text_input("Enter your game Steam ID", "")
+st.title("🎮 Oyun Önerisi")
+st.markdown("**Steam ID'nizi girin ve benzer oyunları görün!**")
 
-if st.button("Get Recommendation"):
+game_id = st.text_input("Oyun Steam ID'nizi girin", "")
+
+if st.button("Önerileri Getir"):
     if game_id.isdigit():
         game_id = int(game_id)
         recommendations = recommend_games(game_id)
+
         if recommendations:
-            st.markdown("### 📌 Recommended games:")
+            st.markdown("### 📌 Önerilen Oyunlar:")
             for app_id, name, similarity in recommendations:
-                st.markdown(f"🔹 **{name}** (Similarity: {similarity:.3f})")
+                st.markdown(f"🔹 **{name}** (Benzerlik: {similarity:.3f})")
         else:
-            st.error("ID is not found.")
+            st.error("ID bulunamadı.")
     else:
-        st.warning("Please enter a valid ID.")
+        st.warning("Lütfen geçerli bir ID girin!")
