@@ -5,21 +5,27 @@ import h5py
 import requests
 from pathlib import Path
 
-# Download the HDF5 file from the Hugging Face URL if it doesn't exist locally.
+# Function to convert a key to a string.
+def key_to_str(key):
+    if isinstance(key, tuple):
+        # If the key is a tuple, take its first element.
+        return key[0]
+    return key
+
+# Download the HDF5 file from Hugging Face if it doesn't exist locally.
 @st.cache_data
 def download_h5():
-    # Define the local path to save the HDF5 file.
+    # Define the local path for the HDF5 file.
     h5_path = Path("game_recommendation.h5")
     
     # If the file already exists, return its path.
     if h5_path.exists():
         return h5_path
 
-    # Hugging Face URL to download the file from.
     hf_url = "https://huggingface.co/datasets/Tunahanyrd/steam-game-recommendation/resolve/main/models/game_recommendation.h5"
     
     try:
-        # Stream the download to avoid memory issues.
+        # Download the file in streaming mode.
         with requests.get(hf_url, stream=True) as r:
             r.raise_for_status()
             with open(h5_path, "wb") as f:
@@ -39,14 +45,30 @@ def load_hdf5():
             return None, None
 
         with h5py.File(h5_path, "r") as file:
-            # Build a dictionary for DataFrame creation, converting keys to strings.
-            df_dict = {str(key): file[str(key)][()] for key in file.keys() if str(key) != "similarity_matrix"}
+            # Initialize a dictionary to build the DataFrame.
+            df_dict = {}
+            similarity_key = None
+
+            # Iterate through all keys in the file.
+            for key in file.keys():
+                key_str = key_to_str(key)
+                if key_str == "similarity_matrix":
+                    similarity_key = key_str
+                    continue
+                df_dict[key_str] = file[key_str][()]
+
+            # Ensure the similarity matrix key was found.
+            if similarity_key is None:
+                st.error("⚠️ Similarity matrix not found in the HDF5 file.")
+                return None, None
+
+            # Create the DataFrame.
             df = pd.DataFrame(df_dict)
             
             # Decode byte columns if needed.
             for col in df.select_dtypes(include=[np.object_, bytes]):
                 df[col] = df[col].apply(lambda x: x.decode("utf-8") if isinstance(x, bytes) else x)
-
+            
             # Convert specific columns to numpy arrays if they are stored as lists.
             vector_columns = [
                 "developers_vector", "publishers_vector", "category_vector", 
@@ -57,17 +79,20 @@ def load_hdf5():
                 if col in df.columns and isinstance(df[col].iloc[0], list):
                     df[col] = df[col].apply(np.array)
             
-            # Extract the similarity matrix.
-            similarity_matrix = file["similarity_matrix"][:]
-
+            # Extract the similarity matrix using the found key.
+            similarity_matrix = file[similarity_key][:]
+            
         return df, similarity_matrix
 
     except Exception as e:
         st.error(f"⚠️ Data importing error: {e}")
         return None, None
 
-# Load data and similarity matrix.
+# Load the data.
 df, similarity_matrix = load_hdf5()
+
+if df is None or similarity_matrix is None:
+    st.stop()
 
 # Function to recommend similar games based on a given game ID.
 def recommend_games(game_id, top_n=10, min_similarity=0.5):
@@ -103,7 +128,7 @@ def recommend_games(game_id, top_n=10, min_similarity=0.5):
     sim_scores = sorted(sim_scores, key=lambda x: x[1], reverse=True)
 
     recommendations = []
-    # Skip the first score since it's the game itself.
+    # Skip the first score (the game itself).
     for idx, score in sim_scores[1:]:
         if score >= min_similarity:
             recommendations.append((df.iloc[idx]["app_id"], df.iloc[idx]["name"], score))
