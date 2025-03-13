@@ -16,7 +16,6 @@ The data is read from the "games.json" file, cleaned, and various features are v
     - Developers, Publishers, Categories, and Genres: Vectorized with Word2Vec, and average vectors are computed.
 Finally, all features are combined with specific weights to obtain a single unified feature vector, and recommendations are generated using cosine similarity.
 """
-import h5py
 import numpy as np
 import pandas as pd
 import numpy as np
@@ -26,7 +25,7 @@ from gensim.models import Word2Vec
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.feature_extraction import DictVectorizer
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import MinMaxScaler, normalize
 # =============================================================================
 # 1. DATA LOAD & CLEANING
 # =============================================================================
@@ -209,14 +208,16 @@ df["release_year_norm"] = scaler_year.fit_transform(df[['release_year']].fillna(
 # Weights for basic features (Word2Vec + scalar scores)
 weights = {
     "metacritic": 1.0,  
-    "release_year": 15.0,  
-    "short_desc": 35.0,  
-    "tags": 10.0,  
-    "developers": 1.3,  
-    "publishers": 2.5,  
-    "category": 8.0,  
+    "release_year": 7.0,  
+    "short_desc": 15.0,  
+    "tags": 15.0,  
+    "developers": 2.5,  
+    "publishers": 4.0,  
+    "category": 10.0,  
     "genre": 10.0,  
 }
+
+
 
 def combine_features(row):
     """
@@ -239,21 +240,27 @@ basic_feature_matrix = np.vstack(basic_feature_vectors)
 # =============================================================================
 # 11. CALCULATING SIMILARITY MATRİX (SEPARATE FUSION)
 # =============================================================================
-# Compute cosine similarities separately for basic features, short description and tags.
-sim_basic = cosine_similarity(basic_feature_matrix)
-sim_short = cosine_similarity(short_desc_matrix)
-sim_tags = cosine_similarity(tags_matrix)
+basic_feature_matrix_norm = normalize(basic_feature_matrix, norm='l2')
+short_desc_matrix_norm = normalize(short_desc_matrix, norm='l2')
+tags_matrix_norm = normalize(tags_matrix, norm='l2')
 
-# Ağırlıkları ayrı belirleyelim: 
-# Burada basic özelliklere 1.0, short_desc'a weights["short_desc"] ve taglere weights["tags"] etkisi veriyoruz.
+# Normalize edilmiş matrislerden cosine similarity hesaplanıyor
+sim_basic = cosine_similarity(basic_feature_matrix_norm)
+sim_short = cosine_similarity(short_desc_matrix_norm)
+sim_tags = cosine_similarity(tags_matrix_norm)
+
+# Ağırlıkları belirliyoruz
 sim_weight_basic = 1.0
 sim_weight_short = weights["short_desc"]
 sim_weight_tags = weights["tags"]
 
+# Son similarity matrisini oluşturuyoruz
 final_similarity = (sim_weight_basic * sim_basic + 
                     sim_weight_short * sim_short + 
                     sim_weight_tags * sim_tags)
-                    
+
+# İsteğe bağlı: final_similarity matrisini de normalize edebilirsiniz.
+final_similarity_norm = normalize(final_similarity, norm='l2')
 # =============================================================================
 # 12. RECOMMENDATION
 # =============================================================================
@@ -308,7 +315,7 @@ if __name__ == '__main__':
             
             # DataFrame içindeki sıralı pozisyonu alıyoruz.
             target_pos = df.index.get_loc(target_game.index[0])
-            recommendations = recommend_games(target_pos, top_n=10, min_similarity=0.7)
+            recommendations = recommend_games(target_pos, top_n=10, min_similarity=0.5)
             if not recommendations:
                 print("\nRecommended game not found or invalid index!")
             else:

@@ -31,7 +31,7 @@ from sklearn.preprocessing import MinMaxScaler
 # 1. DATA LOAD & CLEANING
 # =============================================================================
 # Read the "games.json" file using app_ids as indexes
-df = pd.read_json(r"../../steam-game-recommendation/data/games.json", orient="index")
+df = pd.read_json(r"C:\Users\\Tunahan\\Desktop\\ml\\steam-game-recommendation\\data\\games.json", orient="index")
 df.index.rename("app_id", inplace=True)
 
 # Remove unused columns
@@ -92,7 +92,7 @@ df['release_year'] = 2025 - df['release_year']
 df["total_reviews"] = df["positive"] + df["negative"]
 
 df["p"] = df["positive"] / (df["total_reviews"] + 1e-6)
-z = norm.ppf(0.975)  # %95 güven düzeyi için z değeri
+z = norm.ppf(0.975)  # %97.5 güven düzeyi için z değeri
 
 # Penalty_factor 
 penalty_factor = 2.5
@@ -258,7 +258,7 @@ similarity_matrix = cosine_similarity(feature_matrix)
 # =============================================================================
 # 12. RECOMMANDATION
 # =============================================================================
-def recommend_games(game_index, top_n=10, min_similarity=0.5):
+def recommend_games(game_index, top_n="", min_similarity=""):
     """
     Ranks similar games to the specified index based on the cosine similarity matrix.
     
@@ -309,7 +309,7 @@ if __name__ == '__main__':
             
             # DataFrame içindeki sıralı pozisyonu alıyoruz.
             target_pos = df.index.get_loc(target_game.index[0])
-            recommendations = recommend_games(target_pos, top_n=10, min_similarity=0.5)
+            recommendations = recommend_games(target_pos, top_n=100, min_similarity=0.5)
             if not recommendations:
                 print("\nRecommended game not found or invalid index!")
             else:
