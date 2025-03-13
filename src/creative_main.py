@@ -91,7 +91,7 @@ df['release_year'] = 2025 - df['release_year']
 df["total_reviews"] = df["positive"] + df["negative"]
 
 df["p"] = df["positive"] / (df["total_reviews"] + 1e-6)
-z = norm.ppf(0.975)  # %95 güven düzeyi için z değeri
+z = norm.ppf(0.975) 
 
 # Penalty_factor 
 penalty_factor = 2.5
@@ -186,7 +186,7 @@ def convert_tags(x):
         except:
             return {}
 df["tags"] = df["tags"].apply(convert_tags)
-# Vektörizasyon for tags using DictVectorizer 
+# Vectorization for tags using DictVectorizer 
 vec = DictVectorizer(sparse=False)
 tags_matrix = vec.fit_transform(df["tags"])
 
@@ -201,7 +201,7 @@ tags_tfidf_matrix = tfidf_tags.fit_transform(df["tags_text"]).toarray()
 # =============================================================================
 # 10. FEATURE MERGING (BASIC FEATURES)
 # =============================================================================
-# release_year columns scaling
+# Release_year columns scaling
 scaler_year = MinMaxScaler()
 df["release_year_norm"] = scaler_year.fit_transform(df[['release_year']].fillna(0))
 
@@ -244,27 +244,23 @@ basic_feature_matrix_norm = normalize(basic_feature_matrix, norm='l2')
 short_desc_matrix_norm = normalize(short_desc_matrix, norm='l2')
 tags_matrix_norm = normalize(tags_matrix, norm='l2')
 
-# Normalize edilmiş matrislerden cosine similarity hesaplanıyor
 sim_basic = cosine_similarity(basic_feature_matrix_norm)
 sim_short = cosine_similarity(short_desc_matrix_norm)
 sim_tags = cosine_similarity(tags_matrix_norm)
 
-# Ağırlıkları belirliyoruz
 sim_weight_basic = 1.0
 sim_weight_short = weights["short_desc"]
 sim_weight_tags = weights["tags"]
 
-# Son similarity matrisini oluşturuyoruz
 final_similarity = (sim_weight_basic * sim_basic + 
                     sim_weight_short * sim_short + 
                     sim_weight_tags * sim_tags)
 
-# İsteğe bağlı: final_similarity matrisini de normalize edebilirsiniz.
-final_similarity_norm = normalize(final_similarity, norm='l2')
+# final_similarity_norm = normalize(final_similarity, norm='l2') 
 # =============================================================================
 # 12. RECOMMENDATION
 # =============================================================================
-def recommend_games(game_index, top_n=10, min_similarity=0.7):
+def recommend_games(game_index, top_n=10, min_similarity=0.5):
     """
     Ranks similar games to the specified index based on the combined cosine similarity matrix.
     
@@ -313,7 +309,6 @@ if __name__ == '__main__':
             print("\nTarget Game:")
             print(target_game[["app_id", "name"]])
             
-            # DataFrame içindeki sıralı pozisyonu alıyoruz.
             target_pos = df.index.get_loc(target_game.index[0])
             recommendations = recommend_games(target_pos, top_n=10, min_similarity=0.5)
             if not recommendations:

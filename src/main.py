@@ -25,7 +25,7 @@ from gensim.models import Word2Vec
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.feature_extraction import DictVectorizer
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import MinMaxScaler, normalize
 
 # =============================================================================
 # 1. DATA LOAD & CLEANING
@@ -86,7 +86,7 @@ df = df.drop(columns=['release_date'])
 df['release_year'] = 2025 - df['release_year']
 
 # =============================================================================
-# 4. REVIEW SCORE VE WILSON SCORE HESAPLAMASI
+# 4. REVIEW SCORE VE WILSON SCORE PROCESSİNG
 # =============================================================================
 # Total review score
 df["total_reviews"] = df["positive"] + df["negative"]
@@ -120,8 +120,7 @@ df = df.drop(columns="positive_rate")
 # =============================================================================
 # 6. CATEGORİES AND GENRES PROCESSING
 # =============================================================================
-# Sütunların string olarak gelmesi durumunda ast.literal_eval ile listeye çeviriyoruz.
-df["categories"] = df["categories"].apply(lambda x: ast.literal_eval(x) if isinstance(x, str) else x)
+# If the columns come as strings, we convert them to a list with ast.literal_eval.df["categories"] = df["categories"].apply(lambda x: ast.literal_eval(x) if isinstance(x, str) else x)
 df["genres"] = df["genres"].apply(lambda x: ast.literal_eval(x) if isinstance(x, str) else x)
 
 # =============================================================================
@@ -169,7 +168,6 @@ df["genre_vector"] = df["genres"].apply(lambda x: get_vector_representation(x, c
 tfidf = TfidfVectorizer(max_features=100)
 short_desc_matrix = tfidf.fit_transform(df['short_description'].fillna("")).toarray()
 
-# (B) TAGS: firstly formatting
 def convert_tags(x):
     """
     tags datas formatting dictionary
@@ -190,7 +188,7 @@ def convert_tags(x):
         except:
             return {}
 df["tags"] = df["tags"].apply(convert_tags)
-# Tagss are vektorization with DictVectorizer 
+# Tags vectorization (with DictVectorizer)
 vec = DictVectorizer(sparse=False)
 tags_matrix = vec.fit_transform(df["tags"])
 
@@ -205,7 +203,6 @@ tags_tfidf_matrix = tfidf_tags.fit_transform(df["tags_text"]).toarray()
 # =============================================================================
 # 10. FEATURE MERGING
 # =============================================================================
-# release_year columns scaling
 scaler_year = MinMaxScaler()
 df["release_year_norm"] = scaler_year.fit_transform(df[['release_year']].fillna(0))
 
@@ -221,14 +218,12 @@ weights = {
     "genre": 15.0,  
 }
 
-
 def combine_features(row):
     """
     Combines scalar features (metacritic_score, release_year_norm) 
     with Word2Vec-based vectors (developers, publishers, category, genre) 
     by applying weighted aggregation.
     """
-
     return np.concatenate([
         np.array([row["metacritic_score"]]) * weights["metacritic"],
         np.array([row["release_year_norm"]]) * weights["release_year"],
@@ -240,17 +235,22 @@ def combine_features(row):
 
 basic_feature_vectors = df.apply(lambda row: combine_features(row), axis=1).tolist()
 
+basic_feature_matrix = np.vstack(basic_feature_vectors)
+basic_feature_matrix_norm = normalize(basic_feature_matrix, norm='l2')
+short_desc_matrix_norm = normalize(short_desc_matrix, norm='l2')
+tags_matrix_norm = normalize(tags_matrix, norm='l2')
+
 final_feature_vectors = []
 for i in range(len(df)):
-    vec_basic = basic_feature_vectors[i]
-    vec_short = short_desc_matrix[i] * weights["short_desc"]
-    vec_tags = tags_matrix[i] * weights["tags"]
+    vec_basic = basic_feature_matrix_norm[i]  
+    vec_short = short_desc_matrix_norm[i] * weights["short_desc"]
+    vec_tags = tags_matrix_norm[i] * weights["tags"]
     full_vector = np.concatenate([vec_basic, vec_short, vec_tags])
     final_feature_vectors.append(full_vector)
 df["feature_vector"] = final_feature_vectors
 
 # =============================================================================
-# 11. CALCULATING SIMILARITY MATRISİX
+# 11. CALCULATING SIMILARITY MATRIX
 # =============================================================================
 feature_matrix = np.vstack(df["feature_vector"].values)
 similarity_matrix = cosine_similarity(feature_matrix)
@@ -258,7 +258,7 @@ similarity_matrix = cosine_similarity(feature_matrix)
 # =============================================================================
 # 12. RECOMMANDATION
 # =============================================================================
-def recommend_games(game_index, top_n="", min_similarity=""):
+def recommend_games(game_index, top_n=10, min_similarity=0.5):
     """
     Ranks similar games to the specified index based on the cosine similarity matrix.
     
@@ -307,9 +307,8 @@ if __name__ == '__main__':
             print("\Target Game:")
             print(target_game[["app_id", "name"]])
             
-            # DataFrame içindeki sıralı pozisyonu alıyoruz.
             target_pos = df.index.get_loc(target_game.index[0])
-            recommendations = recommend_games(target_pos, top_n=100, min_similarity=0.5)
+            recommendations = recommend_games(target_pos, top_n=10, min_similarity=0.5)
             if not recommendations:
                 print("\nRecommended game not found or invalid index!")
             else:
