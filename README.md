@@ -87,3 +87,4 @@ with pd.HDFStore("game_recommendation.h5", "r") as store:
 **🚀 Ready to find your next favorite game? Let’s go!** 🎮  
 
 ---
+> **Note:** This project uses data from the Steam Games Dataset by Fronkon Games, available under the MIT License.
