@@ -27,7 +27,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.feature_extraction import DictVectorizer
 from sklearn.preprocessing import MinMaxScaler, normalize
 
-STEAM_API_KEY = "8A9C0E7670691F915AA1A76A4BF63699"
+STEAM_API_KEY = ""
 
 # =============================================================================
 # 1. DATA LOAD & CLEANING
@@ -389,7 +389,6 @@ def validate_input(user_input):
 if __name__ == '__main__':
     print("🎮 Game Recommendation System (Steam ID & AppIDs) Started.")
     print("Type 'exit' to quit.\n")
-
     while True:
         user_input = input("Enter comma-separated AppIDs or a Steam ID (or 'exit'): ").strip()
 

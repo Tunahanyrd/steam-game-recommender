@@ -290,6 +290,8 @@ def recommend_games(game_index, top_n=10, min_similarity=0.5):
 # 13. USER INTARFACE
 # =============================================================================
 if __name__ == '__main__':
+    print("Type of similarity_matrix:", type(similarity_matrix))
+    print("Shape of similarity_matrix:", getattr(similarity_matrix, "shape", None))
     print("Game Recommendation System Started. Type 'exit' to exit.\n")
     while True:
         target_input = input("Enter target ID: ").strip()
