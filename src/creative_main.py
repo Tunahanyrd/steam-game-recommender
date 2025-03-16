@@ -50,7 +50,6 @@ drop_columns = [
 df = df.drop(columns=drop_columns)
 
 df = df.reset_index()
-df = df.rename(columns={"index": "app_id"})
 
 # =============================================================================
 # 2. ESTIMATED OWNERS PROCESS
