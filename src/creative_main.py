@@ -89,7 +89,7 @@ df = df.drop(columns=['release_date'])
 df['release_year'] = 2025 - df['release_year']
 
 # =============================================================================
-# 4. REVIEW SCORE VE WILSON SCORE HESAPLAMASI
+# 4. REVIEW SCORE VE WILSON SCORE PROCESSİNG
 # =============================================================================
 df["total_reviews"] = df["positive"] + df["negative"]
 
