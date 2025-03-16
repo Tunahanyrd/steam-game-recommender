@@ -67,7 +67,7 @@ def transform_estimated_owners(x):
             upper = int(upper.strip())
             return (lower + upper) / 2  # Mean of the interval
         except Exception as e:
-            print(f"An exception from transforming estimated owners: {e}")
+            print(f"An error occured from transforming estimated owners: {e}")
             return np.nan
     return np.nan
 
