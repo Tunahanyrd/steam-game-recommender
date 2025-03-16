@@ -121,7 +121,7 @@ df["categories"] = df["categories"].apply(lambda x: ast.literal_eval(x) if isins
 df["genres"] = df["genres"].apply(lambda x: ast.literal_eval(x) if isinstance(x, str) else x)
 
 # =============================================================================
-# 7. DEVELOPERS VE PUBLISHERS VECTORIZATıON (Word2Vec)
+# 7. DEVELOPERS AND PUBLISHERS VECTORIZATıON (Word2Vec)
 # =============================================================================
 def tokenize_names(names):
     """
