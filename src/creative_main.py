@@ -34,7 +34,6 @@ STEAM_API_KEY = ""
 # =============================================================================
 # Read the "games.json" file using app_ids as indexes
 df = pd.read_json(r"../../steam-game-recommendation/data/games.json", orient="index")
-df.index.rename("app_id", inplace=True)
 
 # Remove unused columns
 drop_columns = [
@@ -49,8 +48,7 @@ drop_columns = [
 ]
 df = df.drop(columns=drop_columns)
 
-df = df.reset_index()
-
+df.index.rename("app_id", inplace=True)
 # =============================================================================
 # 2. ESTIMATED OWNERS PROCESS
 # =============================================================================
