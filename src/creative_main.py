@@ -289,8 +289,8 @@ def recommend_games(game_index, top_n=10, min_similarity=0.5):
 # =============================================================================
 # 12-B. RECOMMENDATION (Multiple AppIDs or Steam UserId's)
 # =============================================================================
-# Bu fonksiyon, kullanıcı birden fazla app_id girerse, her birinin similarity row'unu toplayıp
-# ortalama alır ve en benzer oyunları döndürür.
+# This function, if the user enters multiple app_id's, sums the similarity rows of each one
+# Takes the average and returns the most similar games.
 def recommend_multi_games(app_id_list, playtime_weights=None, top_n=10, min_similarity=0.1):
     """
     Takes a list of app_ids that user likes, sums/averages their similarity rows,
