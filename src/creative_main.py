@@ -49,6 +49,8 @@ drop_columns = [
 df = df.drop(columns=drop_columns)
 
 df.index.rename("app_id", inplace=True)
+df = df.reset_index()
+df = df.rename(columns={"index": "app_id"})
 # =============================================================================
 # 2. ESTIMATED OWNERS PROCESS
 # =============================================================================
@@ -79,6 +81,9 @@ scaler = MinMaxScaler()
 df['estimated_owners_normalized'] = scaler.fit_transform(df[['estimated_owners_numeric']])
 df = df.drop(columns=['estimated_owners', 'estimated_owners_numeric'])
 
+# If the same game appears multiple times (different app_id), keep only one and remove the rest
+df = df.sort_values(by="estimated_owners_normalized", ascending=False)
+df = df.drop_duplicates(subset=['name'], keep='first')
 # =============================================================================
 # 3. RELEASE DATE -> RELEASE YEAR
 # =============================================================================
@@ -414,7 +419,6 @@ if __name__ == '__main__':
         else:
             app_id_list = processed_input
             playtime_weights = None
-
         recs = recommend_multi_games(app_id_list, playtime_weights=playtime_weights, top_n=10, min_similarity=0.2)
 
         if not recs:
@@ -422,12 +426,22 @@ if __name__ == '__main__':
         else:
             print("\n🎯 Target Games:")
             for app_id in app_id_list:
-                game_name = game_names.get(app_id, "Unknown Game")
+                try:
+                    game_name = game_names.get(app_id, "Unknown Game")
+                except:
+                    try:
+                        game_name = df.loc[df["app_id"] == app_id, "name"].values[0]
+                    except (IndexError, KeyError):
+                        game_name = "Unknown Game"
+                
                 print(f"🔹 {app_id} - {game_name}")
-
+        
             print("\n🔍 Recommended Games:")
             for rec_index, score in recs:
-                rec_game = df.iloc[rec_index][["app_id", "name"]]
-                print(f"🎮 {rec_game['app_id']} - {rec_game['name']} (Similarity: {score / final_similarity.max():.3f})")
-
-        print("\n" + "-"*40 + "\n")
+                try:
+                    rec_game = df.iloc[rec_index][["app_id", "name"]]
+                    print(f"🎮 {rec_game['app_id']} - {rec_game['name']} (Similarity: {score / final_similarity.max():.3f})")
+                except KeyError:
+                    print(f"🎮 Unknown AppID (Index: {rec_index}) - Unknown Game")
+        
+            print("\n" + "-" * 40 + "\n")

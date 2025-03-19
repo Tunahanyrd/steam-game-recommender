@@ -46,9 +46,7 @@ drop_columns = [
     "windows", "mac", "linux", "price"
 ]
 df = df.drop(columns=drop_columns)
-
-df = df.reset_index()
-df = df.rename(columns={"index": "app_id"})
+df = df.drop_duplicates(subset = ["name"], keep="first")
 
 # =============================================================================
 # 2. ESTIMATED OWNERS PROCESS
@@ -78,6 +76,10 @@ scaler = MinMaxScaler()
 df['estimated_owners_normalized'] = scaler.fit_transform(df[['estimated_owners_numeric']])
 df = df.drop(columns=['estimated_owners', 'estimated_owners_numeric'])
 
+# If the same game appears multiple times (different app_id), keep only one and remove the rest
+df = df.sort_values(by="estimated_owners_normalized", ascending=False)
+df = df.drop_duplicates(subset=['name'], keep='first')
+
 # =============================================================================
 # 3. RELEASE DATE -> RELEASE YEAR
 # =============================================================================
@@ -92,7 +94,7 @@ df['release_year'] = 2025 - df['release_year']
 df["total_reviews"] = df["positive"] + df["negative"]
 
 df["p"] = df["positive"] / (df["total_reviews"] + 1e-6)
-z = norm.ppf(0.975)  # %97.5 güven düzeyi için z değeri
+z = norm.ppf(0.975)  
 
 # Penalty_factor 
 penalty_factor = 2.5
@@ -107,20 +109,20 @@ drop_cols = ["total_reviews", "positive", "negative", "positive_rate_wilson", "p
 df = df.drop(columns=drop_cols)
 
 # =============================================================================
-# 5. METACRITIC SCORE PROCESSING ()
+# 5. METACRITIC SCORE PROCESSING 
 # =============================================================================
 # Zero values in the metacritic_score column are replaced with NaN to indicate missing values.
 # Missing scores are estimated based on user ratings using the formula
 df["metacritic_score"] = df["metacritic_score"].replace(0, np.nan)
-df["metacritic_score"] = df["metacritic_score"].fillna(df["positive_rate"] * 9 + 5)
-df["metacritic_score"] = df["metacritic_score"] / 120
-df = df[df["metacritic_score"] > 0.25]
+df.loc[df["metacritic_score"].isna(), "metacritic_score"] = df["positive_rate"] * 7.0
+df["metacritic_score"] = df["metacritic_score"] / 100
+df = df[df["metacritic_score"] > 0.20]
 df = df.drop(columns="positive_rate")
 
 # =============================================================================
 # 6. CATEGORİES AND GENRES PROCESSING
 # =============================================================================
-# If the columns come as strings, we convert them to a list with ast.literal_eval.df["categories"] = df["categories"].apply(lambda x: ast.literal_eval(x) if isinstance(x, str) else x)
+df["categories"] = df["categories"].apply(lambda x: ast.literal_eval(x) if isinstance(x, str) else x)
 df["genres"] = df["genres"].apply(lambda x: ast.literal_eval(x) if isinstance(x, str) else x)
 
 # =============================================================================
@@ -137,15 +139,15 @@ def tokenize_names(names):
 
 df["developers_tokenized"] = df["developers"].apply(lambda x: tokenize_names(x))
 dev_corpus = df["developers_tokenized"].tolist()
-dev_model = Word2Vec(sentences=dev_corpus, vector_size=8, window=5, min_count=1, workers=4)
-def get_average_vector(tokens, model, vector_size=8):
+dev_model = Word2Vec(sentences=dev_corpus, vector_size=16, window=10, min_count=2, workers=4)
+def get_average_vector(tokens, model, vector_size=16):
     vectors = [model.wv[token] for token in tokens if token in model.wv]
     return np.mean(vectors, axis=0) if vectors else np.zeros(vector_size)
 df["developers_vector"] = df["developers_tokenized"].apply(lambda tokens: get_average_vector(tokens, dev_model))
 
 df["publishers_tokenized"] = df["publishers"].apply(lambda x: tokenize_names(x))
 pub_corpus = df["publishers_tokenized"].tolist()
-pub_model = Word2Vec(sentences=pub_corpus, vector_size=8, window=5, min_count=1, workers=4)
+pub_model = Word2Vec(sentences=pub_corpus, vector_size=16, window=10, min_count=2, workers=4)
 df["publishers_vector"] = df["publishers_tokenized"].apply(lambda tokens: get_average_vector(tokens, pub_model))
 
 df["categories"] = df["categories"].apply(lambda x: x if isinstance(x, list) else [])
@@ -154,8 +156,8 @@ df["genres"] = df["genres"].apply(lambda x: x if isinstance(x, list) else [])
 cat_corpus = df["categories"].tolist()
 genre_corpus = df["genres"].tolist()
 combined_corpus = cat_corpus + genre_corpus
-cat_genre_model = Word2Vec(sentences=combined_corpus, vector_size=8, window=3, min_count=1, workers=4)
-def get_vector_representation(tags, model, vector_size=8):
+cat_genre_model = Word2Vec(sentences=combined_corpus, vector_size=16, window=5, min_count=2, workers=4)
+def get_vector_representation(tags, model, vector_size=16):
     vectors = [model.wv[tag] for tag in tags if tag in model.wv]
     return np.mean(vectors, axis=0) if vectors else np.zeros(vector_size)
 df["category_vector"] = df["categories"].apply(lambda x: get_vector_representation(x, cat_genre_model))
@@ -165,7 +167,7 @@ df["genre_vector"] = df["genres"].apply(lambda x: get_vector_representation(x, c
 # 9. TAGS VE SHORT DESCRIPTION VECTORIZATION
 # =============================================================================
 # (A) SHORT DESCRIPTION: TF-IDF 
-tfidf = TfidfVectorizer(max_features=100)
+tfidf = TfidfVectorizer(max_features=500)
 short_desc_matrix = tfidf.fit_transform(df['short_description'].fillna("")).toarray()
 
 def convert_tags(x):
@@ -197,7 +199,7 @@ def tags_to_text(tags):
         return " ".join(tags.keys())
     return ""
 df["tags_text"] = df["tags"].apply(tags_to_text)
-tfidf_tags = TfidfVectorizer(max_features=100)
+tfidf_tags = TfidfVectorizer(max_features=500)
 tags_tfidf_matrix = tfidf_tags.fit_transform(df["tags_text"]).toarray()
 
 # =============================================================================
@@ -208,14 +210,14 @@ df["release_year_norm"] = scaler_year.fit_transform(df[['release_year']].fillna(
 
 # Weights
 weights = {
-    "metacritic": 0.5,  
-    "release_year": 0.8,  
-    "short_desc": 20.0,  
-    "tags": 30.0,  
-    "developers": 1.0,  
-    "publishers": 1.0,  
-    "category": 5.0,  
-    "genre": 15.0,  
+    "metacritic": 1.0,  
+    "release_year": 15.0,  
+    "short_desc": 15.0,  
+    "tags": 15.0,  
+    "developers": 2.5,  
+    "publishers": 4.0,  
+    "category": 10.0,  
+    "genre": 10.0,  
 }
 
 def combine_features(row):
