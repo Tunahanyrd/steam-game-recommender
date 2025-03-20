@@ -16,7 +16,7 @@ The data is read from the "games.json" file, cleaned, and various features are v
     - Developers, Publishers, Categories, and Genres: Vectorized with Word2Vec, and average vectors are computed.
 Finally, all features are combined with specific weights to obtain a single unified feature vector, and recommendations are generated using cosine similarity.
 """
-
+import gc
 import pandas as pd
 import numpy as np
 import ast
@@ -32,7 +32,6 @@ from sklearn.preprocessing import MinMaxScaler, normalize
 # =============================================================================
 # Read the "games.json" file using app_ids as indexes
 df = pd.read_json(r"C:\Users\\Tunahan\\Desktop\\ml\\steam-game-recommendation\\data\\games.json", orient="index")
-df.index.rename("app_id", inplace=True)
 
 # Remove unused columns
 drop_columns = [
@@ -46,8 +45,10 @@ drop_columns = [
     "windows", "mac", "linux", "price"
 ]
 df = df.drop(columns=drop_columns)
-df = df.drop_duplicates(subset = ["name"], keep="first")
 
+df.index.rename("app_id", inplace=True)
+df = df.reset_index()
+df = df.rename(columns={"index": "app_id"})
 # =============================================================================
 # 2. ESTIMATED OWNERS PROCESS
 # =============================================================================
@@ -163,6 +164,10 @@ def get_vector_representation(tags, model, vector_size=16):
 df["category_vector"] = df["categories"].apply(lambda x: get_vector_representation(x, cat_genre_model))
 df["genre_vector"] = df["genres"].apply(lambda x: get_vector_representation(x, cat_genre_model))
 
+del dev_corpus, cat_corpus, cat_genre_model, dev_model, pub_model, pub_corpus, genre_corpus, combined_corpus
+gc.collect()
+df = df.drop(columns = ["categories", "developers_tokenized", "developers_tokenized", "publishers_tokenized"])
+
 # =============================================================================
 # 9. TAGS VE SHORT DESCRIPTION VECTORIZATION
 # =============================================================================
@@ -202,6 +207,8 @@ df["tags_text"] = df["tags"].apply(tags_to_text)
 tfidf_tags = TfidfVectorizer(max_features=500)
 tags_tfidf_matrix = tfidf_tags.fit_transform(df["tags_text"]).toarray()
 
+del tfidf
+gc.collect()
 # =============================================================================
 # 10. FEATURE MERGING
 # =============================================================================
@@ -219,7 +226,6 @@ weights = {
     "category": 10.0,  
     "genre": 10.0,  
 }
-
 def combine_features(row):
     """
     Combines scalar features (metacritic_score, release_year_norm) 
@@ -251,12 +257,16 @@ for i in range(len(df)):
     final_feature_vectors.append(full_vector)
 df["feature_vector"] = final_feature_vectors
 
+del tfidf_tags, short_desc_matrix, tags_matrix,tags_matrix_norm, tags_tfidf_matrix, vec_tags, full_vector, vec_basic,vec_short, basic_feature_vectors
+gc.collect()
 # =============================================================================
 # 11. CALCULATING SIMILARITY MATRIX
 # =============================================================================
 feature_matrix = np.vstack(df["feature_vector"].values)
 similarity_matrix = cosine_similarity(feature_matrix)
-
+del basic_feature_matrix, basic_feature_matrix_norm, short_desc_matrix_norm, final_feature_vectors, feature_matrix
+df = df.drop(columns =["feature_vector"])
+gc.collect()
 # =============================================================================
 # 12. RECOMMANDATION
 # =============================================================================
@@ -292,9 +302,47 @@ def recommend_games(game_index, top_n=10, min_similarity=0.5):
 # 13. USER INTARFACE
 # =============================================================================
 if __name__ == '__main__':
-    print("Type of similarity_matrix:", type(similarity_matrix))
-    print("Shape of similarity_matrix:", getattr(similarity_matrix, "shape", None))
-    print("Game Recommendation System Started. Type 'exit' to exit.\n")
+    print("🎮 Game Recommendation System Started! 🎯")
+    print("Type 'exit' to quit.\n")
+
+    while True:
+        target_input = input("🆔 Enter target App ID: ").strip()
+        
+        if target_input.lower() == 'exit':
+            print("Exiting...")
+            break
+        
+        try:
+            target = int(target_input)
+        except ValueError:
+            print("⚠️ Invalid ID. Please enter a valid numeric App ID.")
+            continue
+        
+        target_game = df[df["app_id"] == target]
+
+        if target_game.empty:
+            print(f"❌ App ID {target} not found in the dataset.")
+        else:
+            print("\n🎯 Target Game:")
+            print(f"🔹 {target} - {target_game['name'].values[0]}")
+
+            target_pos = df.index.get_loc(target_game.index[0])
+            recommendations = recommend_games(target_pos, top_n=10, min_similarity=0.4)
+
+            if not recommendations:
+                print("\n🚫 No recommendations found for this game!")
+            else:
+                print("\n🔍 Recommended Games:")
+                for rec_index, score in recommendations:
+                    rec_game = df.iloc[rec_index][["app_id", "name", "genres"]]
+                    genres_text = ", ".join(rec_game["genres"]) if isinstance(rec_game["genres"], list) else "Unknown Genre"
+                    print(f"🎮 {rec_game['app_id']} - {rec_game['name']} ({genres_text}) (Similarity: {score:.3f})")
+        print("\n" + "—" * 40 + "\n")
+
+
+"""
+if __name__ == '__main__':
+    print("Game Recommendation System Started. Type 'exit' to exit\n")
     while True:
         target_input = input("Enter target ID: ").strip()
         if target_input.lower() == 'exit':
@@ -308,17 +356,19 @@ if __name__ == '__main__':
         if target_game.empty:
             print(f"{target} app_id is not found!")
         else:
-            print("\Target Game:")
+            print("\nTarget Game:")
             print(target_game[["app_id", "name"]])
             
             target_pos = df.index.get_loc(target_game.index[0])
-            recommendations = recommend_games(target_pos, top_n=10, min_similarity=0.5)
+            recommendations = recommend_games(target_pos, top_n=10, min_similarity=0.4)
             if not recommendations:
                 print("\nRecommended game not found or invalid index!")
             else:
                 print("\nRecommended Games:")
                 for rec_index, score in recommendations:
-                    rec_game = df.iloc[rec_index][["app_id", "name"]]
+                    rec_game = df.iloc[rec_index][["app_id", "name", "genres"]]
+                    
                     print(f"{rec_game['app_id']} - {rec_game['name']} (Similarity: {score:.3f})")
         print("\n-----------------------------------\n")
         
+"""

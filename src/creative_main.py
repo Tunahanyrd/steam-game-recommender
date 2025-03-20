@@ -26,6 +26,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.feature_extraction import DictVectorizer
 from sklearn.preprocessing import MinMaxScaler, normalize
+import gc
 
 STEAM_API_KEY = ""
 
@@ -51,9 +52,11 @@ df = df.drop(columns=drop_columns)
 df.index.rename("app_id", inplace=True)
 df = df.reset_index()
 df = df.rename(columns={"index": "app_id"})
+df = df["release_year"].type("int")
 # =============================================================================
 # 2. ESTIMATED OWNERS PROCESS
 # =============================================================================
+
 def transform_estimated_owners(x):
     """
     Converts ranges in column 'estimated_owners' to numerical (e.g. "20000 - 50000").
@@ -138,26 +141,39 @@ def tokenize_names(names):
     return []
 
 df["developers_tokenized"] = df["developers"].apply(lambda x: tokenize_names(x))
+df = df.drop(columns="developers")
 dev_corpus = df["developers_tokenized"].tolist()
-dev_model = Word2Vec(sentences=dev_corpus, vector_size=8, window=5, min_count=1, workers=4)
 
+dev_model = Word2Vec(sentences=dev_corpus, vector_size=8, window=5, min_count=1, workers=4)
 def get_average_vector(tokens, model, vector_size=8):
     vectors = [model.wv[token] for token in tokens if token in model.wv]
     return np.mean(vectors, axis=0) if vectors else np.zeros(vector_size)
 
+del dev_corpus
+gc.collect()
+
 df["developers_vector"] = df["developers_tokenized"].apply(lambda tokens: get_average_vector(tokens, dev_model))
+df = df.drop(columns="developers_tokenized")
 
 df["publishers_tokenized"] = df["publishers"].apply(lambda x: tokenize_names(x))
+df = df.drop(columns="publishers")
+
 pub_corpus = df["publishers_tokenized"].tolist()
-pub_model = Word2Vec(sentences=pub_corpus, vector_size=8, window=5, min_count=1, workers=4)
+pub_model = Word2Vec(sentences=pub_corpus, vector_size=8, window=5, min_count=1, workers=-1)
 df["publishers_vector"] = df["publishers_tokenized"].apply(lambda tokens: get_average_vector(tokens, pub_model))
+df = df.drop(columns="publishers_tokenized")
 
 df["categories"] = df["categories"].apply(lambda x: x if isinstance(x, list) else [])
 df["genres"] = df["genres"].apply(lambda x: x if isinstance(x, list) else [])
 
 cat_corpus = df["categories"].tolist()
 genre_corpus = df["genres"].tolist()
+
 combined_corpus = cat_corpus + genre_corpus
+
+del pub_corpus, cat_corpus, genre_corpus
+gc.collect()
+
 cat_genre_model = Word2Vec(sentences=combined_corpus, vector_size=8, window=3, min_count=1, workers=4)
 
 def get_vector_representation(tags, model, vector_size=8):
@@ -166,7 +182,10 @@ def get_vector_representation(tags, model, vector_size=8):
 
 df["category_vector"] = df["categories"].apply(lambda x: get_vector_representation(x, cat_genre_model))
 df["genre_vector"] = df["genres"].apply(lambda x: get_vector_representation(x, cat_genre_model))
+df = df.drop(columns=["categories"])
 
+del combined_corpus
+gc.collect()
 # =============================================================================
 # 9. TAGS VE SHORT DESCRIPTION VECTORIZATION
 # =============================================================================
@@ -207,12 +226,14 @@ df["tags_text"] = df["tags"].apply(tags_to_text)
 tfidf_tags = TfidfVectorizer(max_features=100)
 tags_tfidf_matrix = tfidf_tags.fit_transform(df["tags_text"]).toarray()
 
+del pub_model, cat_genre_model, tfidf_tags, tfidf
+gc.collect()
+
 # =============================================================================
 # 10. FEATURE MERGING (BASIC FEATURES)
 # =============================================================================
 scaler_year = MinMaxScaler()
 df["release_year_norm"] = scaler_year.fit_transform(df[['release_year']].fillna(0))
-
 weights = {
     "metacritic": 1.0,  
     "release_year": 15.0,  
@@ -241,7 +262,8 @@ def combine_features(row):
 
 basic_feature_vectors = df.apply(lambda row: combine_features(row), axis=1).tolist()
 basic_feature_matrix = np.vstack(basic_feature_vectors)
-
+del basic_feature_vectors
+gc.collect()
 # =============================================================================
 # 11. CALCULATING SIMILARITY MATRİX (SEPARATE FUSION)
 # =============================================================================
@@ -261,6 +283,9 @@ final_similarity = (sim_weight_basic * sim_basic +
                     sim_weight_short * sim_short + 
                     sim_weight_tags * sim_tags) 
 
+del sim_weight_basic, sim_basic,sim_weight_short, sim_short, sim_weight_tags, sim_tags, short_desc_matrix
+del basic_feature_matrix, basic_feature_matrix_norm, short_desc_matrix_norm,tags_matrix, tags_matrix_norm, tags_tfidf_matrix
+gc.collect()
 # =============================================================================
 # 12. RECOMMENDATION (Single ID)
 # =============================================================================
@@ -349,7 +374,7 @@ def get_playtime_weights(app_id_list, playtime_data):
     if playtimes.max() == 0:
         return np.ones(len(app_id_list))
 
-    # Doğrudan maksimum değere göre normalize ediliyor
+    # Directly normalized by maximum value
     playtime_weights = playtimes / playtimes.max()
 
     return playtime_weights
@@ -439,8 +464,9 @@ if __name__ == '__main__':
             print("\n🔍 Recommended Games:")
             for rec_index, score in recs:
                 try:
-                    rec_game = df.iloc[rec_index][["app_id", "name"]]
-                    print(f"🎮 {rec_game['app_id']} - {rec_game['name']} (Similarity: {score / final_similarity.max():.3f})")
+                    rec_game = df.iloc[rec_index][["app_id", "name", "genres", "release_year"]]
+                    genres_text = ", ".join(rec_game["genres"]) if isinstance(rec_game["genres"], list) else "Unknown Genre"
+                    print(f"🎮 {rec_game['app_id']} - {rec_game['name']} ({genres_text} | {2025 - int(rec_game['release_year'])}) (Similarity: {score / final_similarity.max():.3f})")
                 except KeyError:
                     print(f"🎮 Unknown AppID (Index: {rec_index}) - Unknown Game")
         
