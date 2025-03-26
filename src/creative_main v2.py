@@ -13,7 +13,7 @@ The data is read from the "games.json" file, cleaned, and various features are v
     - Release date: The time elapsed since the game's release year is calculated as (2025 - release_year).
     - Short descriptions: Vectorized using TF-IDF.
     - Tags: Converted into numerical vectors using DictVectorizer or TF-IDF.
-    - Developers, Publishers, Categories, and Genres: Vectorized with Word2Vec, and average vectors are computed.
+    - Publishers, Categories, and Genres: Vectorized with Word2Vec, and average vectors are computed.
 Finally, all features are combined with specific weights to obtain a single unified feature vector, and recommendations are generated using cosine similarity.
 """
 import requests
@@ -34,8 +34,8 @@ STEAM_API_KEY = ""
 # 1. DATA LOAD & CLEANING
 # =============================================================================
 # Read the "games.json" file using app_ids as indexes
-df = pd.read_json(r"C:\Users\Tunahan\Desktop\ml\steam-game-recommendation\data/games.json", orient="index")
-
+df = pd.read_csv(r"C:\Users\Tunahan\Desktop\ml\steam-game-recommendation\data/games v2.csv")
+df.rename(columns={"appid": "app_id"}, inplace=True)
 # Remove unused columns
 drop_columns = [
     "metacritic_score", "metacritic_url", "windows", "mac", "linux",
@@ -43,22 +43,22 @@ drop_columns = [
     "website", "support_url", "support_email", "achievements", "notes",
     "supported_languages", "full_audio_languages", "packages", "screenshots", "movies",
     "user_score", "score_rank", "pct_pos_total", "num_reviews_total", "pct_pos_recent",
-    "num_reviews_recent", "discount"
+    "num_reviews_recent", "discount","recommendations",'average_playtime_2weeks', 
+    'median_playtime_forever','median_playtime_2weeks', 'peak_ccu'
 ]
 
+df = df.drop(columns=drop_columns)
+df["price"] = df["price"] == 0
 
-df.index.rename("app_id", inplace=True)
-df = df.reset_index()
-df = df.rename(columns={"index": "app_id"})
 # =============================================================================
 # 2. ESTIMATED OWNERS PROCESS
 # =============================================================================
-
+"""
 def transform_estimated_owners(x):
-    """
-    Converts ranges in column 'estimated_owners' to numerical (e.g. "20000 - 50000").
-    Values "0 - 0" become NaN.
-    """
+    
+    #Converts ranges in column 'estimated_owners' to numerical (e.g. "20000 - 50000").
+    #Values "0 - 0" become NaN.
+    
     if isinstance(x, str):
         x = x.strip()
         if x == "0 - 0":
@@ -70,6 +70,23 @@ def transform_estimated_owners(x):
             return (lower + upper) / 2  # Mean of the interval
         except Exception as e:
             print(f"An error occured from transforming estimated owners: {e}")
+            return np.nan
+    return np.nan
+"""
+def transform_estimated_owners(x):
+    if isinstance(x, str):
+        x = x.strip()
+        if x == "0 - 0" or x == "":
+            return np.nan
+        try:
+            parts = x.split('-')
+            if len(parts) != 2:
+                return np.nan
+            lower = int(parts[0].strip().replace(',', ''))
+            upper = int(parts[1].strip().replace(',', ''))
+            return (lower + upper) / 2
+        except Exception as e:
+            print(f"Error parsing '{x}': {e}")
             return np.nan
     return np.nan
 
@@ -90,13 +107,13 @@ df = df.drop_duplicates(subset=['name'], keep='first')
 df['release_year'] = pd.to_datetime(df['release_date'], errors='coerce').dt.year
 df = df.drop(columns=['release_date'])
 df['release_year'] = 2025 - df['release_year']
-
+df = df[df["release_year"].notna()]
 # =============================================================================
 # 4. WILSON SCORE
 # =============================================================================
 df["total_reviews"] = df["positive"] + df["negative"]
-
-df["p"] = df["positive"] / (df["total_reviews"] + 1e-6)
+df["total_reviews"] += 1e-6
+df["p"] = df["positive"] / (df["total_reviews"])
 z = norm.ppf(0.975)  
 
 penalty_factor = 2.5
@@ -109,22 +126,18 @@ df["positive_rate"] = df["positive_rate_wilson"] * np.log1p(df["total_reviews"])
 
 drop_cols = ["total_reviews", "positive", "negative", "positive_rate_wilson", "p"]
 df = df.drop(columns=drop_cols)
-
 # =============================================================================
 # 5. PEAK CCU AND POPULARITY SCORE
 # =============================================================================
-df["peak_ccu"] = df["peak_ccu"].replace(0, np.nan)  
-df["peak_ccu_log"] = np.log1p(df["peak_ccu"])  
-
-df["peak_ccu_scaled"] = scaler.fit_transform(df[["peak_ccu_log"]])
-
-df = df.drop(columns=["peak_ccu", "peak_ccu_log"])
-
 df["popularity_score"] = (
     0.5 * df["positive_rate"] +  
-    0.3 * df["estimated_owners_normalized"] +  
-    0.2 * df["peak_ccu_scaled"]  
-)
+    0.5 * df["estimated_owners_normalized"])
+
+df = df[df["popularity_score"] >= 1]
+
+scaler = MinMaxScaler()
+df["popularity_score"] = scaler.fit_transform(df[["popularity_score"]])
+
 # =============================================================================
 # 6. CATEGORIES AND GENRES PROCESSING
 # =============================================================================
@@ -132,16 +145,17 @@ df["categories"] = df["categories"].apply(lambda x: ast.literal_eval(x) if isins
 df["genres"] = df["genres"].apply(lambda x: ast.literal_eval(x) if isinstance(x, str) else x)
 
 # =============================================================================
-# 7. DEVELOPERS AND PUBLISHERS VECTORIZATıON (Word2Vec)
+# 7. PUBLISHERS VECTORIZATıON (Word2Vec)
 # =============================================================================
 def tokenize_names(names):
-    """
-    Developers or publishers name normalizes and tokenizes.
-    Sample: "Ubisoft Montreal" -> "ubisoft_montreal"
-    """
+    if isinstance(names, str):
+        names = names.split(",")  
+    
     if isinstance(names, list):
         return [name.strip().lower().replace(" ", "_") for name in names]
-    return []
+
+    return []  
+
 
 df["developers_tokenized"] = df["developers"].apply(lambda x: tokenize_names(x))
 df = df.drop(columns="developers")
@@ -251,7 +265,7 @@ weights = {
 def combine_features(row):
     """
     Combines scalar features (metacritic_score, release_year_norm) 
-    with Word2Vec-based vectors (developers, publishers, category, genre) 
+    with Word2Vec-based vectors (publishers, category, genre) 
     by applying weighted aggregation.
     """
     return np.concatenate([
@@ -469,7 +483,7 @@ if __name__ == '__main__':
                 try:
                     rec_game = df.iloc[rec_index][["app_id", "name", "genres", "release_year"]]
                     genres_text = ", ".join(rec_game["genres"]) if isinstance(rec_game["genres"], list) else "Unknown Genre"
-                    print(f"🎮 {rec_game['app_id']} - {rec_game['name']} ({genres_text} | {2025 - int(rec_game['release_year'])}) (Similarity: {score / final_similarity.max():.3f})")
+                    print(f"🎮 {rec_game['app_id']} - {rec_game['name']} ({genres_text} | {2025 - int(rec_game['release_year'])}) (Similarity: {1.5*score / final_similarity.max():.3f})")
                 except KeyError:
                     print(f"🎮 Unknown AppID (Index: {rec_index}) - Unknown Game")
         
